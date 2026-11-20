@@ -408,6 +408,18 @@ function adminOcr(no) {
   for (let i = ids.length - 1; i >= 0; i--) if (ids[i] === no) sh.deleteRow(i + 2);
   const now = new Date();
   out.forEach(o => sh.appendRow([no, o.ik, o.fk, o.name, o.id, o.len, o.err ? o.err : cell_(o.text.slice(0, 45000)), now, me]));
+  // 서류 종류별 시트에 항목별로 정리해 보관
+  Object.keys(PARSE_DOCS).forEach(ik => {
+    const d = PARSE_DOCS[ik];
+    const head = ['접수번호', '파일명'].concat(d.fields, ['판독일시']);
+    const ps = sheet_('판독_' + d.kind) || ensureSheet_('판독_' + d.kind, head);
+    const pids = ps.getLastRow() > 1 ? ps.getRange(2, 1, ps.getLastRow() - 1, 1).getValues().map(r => String(r[0])) : [];
+    for (let i = pids.length - 1; i >= 0; i--) if (pids[i] === no) ps.deleteRow(i + 2);
+    out.filter(o => o.ik === ik && !o.err && o.len > 0).forEach(o => {
+      const v = parseDoc(ik, o.text);
+      ps.appendRow([no, o.name].concat(d.fields.map(f => cell_(v[f] || '')), [now]));
+    });
+  });
   return out.map(o => ({ ik: o.ik, fk: o.fk, name: o.name, len: o.len, text: o.text.slice(0, 8000), err: o.err || '', at: now.getTime() }));
 }
 

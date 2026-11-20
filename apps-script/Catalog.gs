@@ -100,3 +100,79 @@ function plain(f,v){
   if(Array.isArray(v))return v.join(', ');
   return String(v);
 }
+/* ---------- 서류 판독 글자 → 항목별 정리 (서버·담당자 화면 공용) ---------- */
+const PARSE_DOCS = {
+  brc: { kind: '사업자등록', fields: ['서류종류', '등록번호', '상호(법인명)', '대표자', '개업연월일', '법인등록번호', '사업장 소재지', '본점소재지', '업태', '종목', '발급사유', '발급일', '발급기관'] },
+  annual: { kind: '매출증빙', fields: ['서류종류', '사업자번호', '상호', '대표자', '과세기간', '매출(과세표준) 합계', '발급일'] },
+  bank: { kind: '통장', fields: ['은행', '계좌번호', '예금주'] }
+};
+function pxLabel_(w) { return w.split('').map(c => c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[ \\t\\r\\n]*'); }
+/* 항목 이름 뒤 ':' 다음 값을 그 줄 끝(또는 다음 항목 이름 앞)까지 읽음 */
+function pxValue_(t, labels, stops) {
+  for (const l of labels) {
+    const m = new RegExp(pxLabel_(l) + '[ \\t]*(?:\\([^)\\n]*\\))?[ \\t]*[:：][ \\t]*([^\\n]*)').exec(t);
+    if (m) {
+      let v = m[1];
+      (stops || []).forEach(s => { const i = v.search(new RegExp('[ \\t]' + pxLabel_(s) + '[ \\t]*[:：]')); if (i >= 0) v = v.slice(0, i); });
+      v = v.trim();
+      if (v) return v;
+    }
+  }
+  return '';
+}
+function pxDate_(s) {
+  const m = /(19|20)(\d\d)\s*[년.\-/]\s*(\d{1,2})\s*[월.\-/]\s*(\d{1,2})/.exec(String(s || ''));
+  return m ? m[1] + m[2] + '-' + ('0' + m[3]).slice(-2) + '-' + ('0' + m[4]).slice(-2) : '';
+}
+function pxDates_(t) {
+  const out = []; const re = /(20\d\d)\s*[년.\-]\s*(\d{1,2})\s*[월.\-]\s*(\d{1,2})/g; let m;
+  while ((m = re.exec(t))) out.push(m[1] + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[3]).slice(-2));
+  return out;
+}
+function pxBrn_(t) { const m = /\d{3}\s*-\s*\d{2}\s*-\s*\d{5}/.exec(t); return m ? m[0].replace(/\s/g, '') : ''; }
+function pxBetween_(t, from, tos) {
+  const a = new RegExp(pxLabel_(from)).exec(t); if (!a) return '';
+  const rest = t.slice(a.index + a[0].length);
+  let end = rest.length;
+  tos.forEach(s => { const m = new RegExp(pxLabel_(s)).exec(rest); if (m && m.index < end) end = m.index; });
+  return rest.slice(0, end).replace(/^[\s:：]+/, '').split(/\n+/).map(x => x.trim()).filter(Boolean).join(', ');
+}
+function parseDoc(ik, text) {
+  const t = String(text || '').replace(/\r/g, '');
+  const o = {};
+  if (ik === 'brc') {
+    const kind = /사\s*업\s*자\s*등\s*록\s*증\s*명/.test(t) ? '사업자등록증명' : /사\s*업\s*자\s*등\s*록\s*증/.test(t) ? '사업자등록증' : '';
+    const sub = (/(사업자등록증명?)\s*(\([^)\n]*\))/.exec(t.replace(/[ \t]/g, '')) || [])[2] || '';
+    o['서류종류'] = kind ? kind + sub : '';
+    o['등록번호'] = pxBrn_(t);
+    o['상호(법인명)'] = pxValue_(t, ['법인명', '상호'], ['성명', '대표자', '생년월일', '개업']);
+    o['대표자'] = pxValue_(t, ['대표자', '성명'], ['생년월일', '개업', '주민']);
+    o['개업연월일'] = pxDate_(pxValue_(t, ['개업연월일', '개업일']));
+    o['법인등록번호'] = pxValue_(t, ['법인등록번호']).replace(/[^0-9\-]/g, '');
+    o['사업장 소재지'] = pxValue_(t, ['사업장소재지']);
+    o['본점소재지'] = pxValue_(t, ['본점소재지']);
+    const STOP = ['종목', '발급사유', '발급', '사업자단위', '공동사업자', '전자세금계산서', '국세청'];
+    o['업태'] = pxBetween_(t, '업태', STOP).replace(/,\s*$/, '');
+    o['종목'] = pxBetween_(t, '종목', ['발급사유', '발급', '사업자단위', '공동사업자', '전자세금계산서', '국세청']);
+    o['발급사유'] = pxValue_(t, ['발급사유']);
+    const ds = pxDates_(t).filter(d => d !== o['개업연월일']); o['발급일'] = ds.length ? ds.sort().pop() : '';
+    o['발급기관'] = (/([가-힣]{1,10}세무서)/.exec(t) || [])[1] || '';
+  } else if (ik === 'annual') {
+    o['서류종류'] = ((/(부가가치세\s*)?과세표준증명|면세사업자\s*수입금액증명|소득금액증명/.exec(t) || [])[0] || '').replace(/\s+/g, '');
+    o['사업자번호'] = pxBrn_(t);
+    o['상호'] = pxValue_(t, ['상호', '법인명'], ['성명', '대표자', '사업자']);
+    o['대표자'] = pxValue_(t, ['대표자', '성명'], ['주민', '생년월일', '사업자']);
+    const p = /(20\d\d)\s*[년.\-]\s*(\d{1,2})\s*[월.\-]\s*(\d{1,2})\s*일?\s*[~∼\-부터]+\s*(20\d\d)\s*[년.\-]\s*(\d{1,2})\s*[월.\-]\s*(\d{1,2})/.exec(t);
+    o['과세기간'] = p ? pxDate_(p[1] + '-' + p[2] + '-' + p[3]) + ' ~ ' + pxDate_(p[4] + '-' + p[5] + '-' + p[6]) : '';
+    const nums = (t.match(/\d{1,3}(?:,\d{3})+/g) || []).map(x => +x.replace(/,/g, ''));
+    o['매출(과세표준) 합계'] = nums.length ? String(Math.max.apply(null, nums)) : '';
+    const ds = pxDates_(t); o['발급일'] = ds.length ? ds.sort().pop() : '';
+  } else if (ik === 'bank') {
+    o['은행'] = (/([가-힣A-Za-z]{0,8}(?:은행|뱅크)|농협|수협|신협|새마을금고|우체국)/.exec(t) || [])[1] || '';
+    const acc = pxValue_(t, ['계좌번호', '계좌']);
+    o['계좌번호'] = (/\d[\d\- ]{6,}\d/.exec(acc) || /\d{2,6}-\d{2,6}-\d{2,8}(?:-\d{1,6})?/.exec(t) || [''])[0].trim();
+    o['예금주'] = pxValue_(t, ['예금주', '고객명', '성명'], ['계좌', '은행']);
+  }
+  return o;
+}
+
