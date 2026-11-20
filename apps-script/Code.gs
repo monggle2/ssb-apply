@@ -355,7 +355,8 @@ function ocrFile_(fileId, name) {
   let doc;
   if (Drive.Files.create) doc = Drive.Files.create({ name: '_판독_' + name, mimeType: 'application/vnd.google-apps.document' }, blob, { ocrLanguage: 'ko', fields: 'id' });
   else doc = Drive.Files.insert({ title: '_판독_' + name, mimeType: 'application/vnd.google-apps.document' }, blob, { ocr: true, ocrLanguage: 'ko' });
-  try { return DocumentApp.openById(doc.id).getBody().getText(); }
+  // 문서 권한 없이 드라이브 권한만으로 글자를 꺼냄 (마크다운 기호 표시는 지움)
+  try { return DriveApp.getFileById(doc.id).getAs('text/markdown').getDataAsString('UTF-8').replace(/\\([\\`*_{}\[\]()#+\-.!>~|])/g, '$1'); }
   finally { try { DriveApp.getFileById(doc.id).setTrashed(true); } catch (e) {} }
 }
 
@@ -377,7 +378,7 @@ function adminOcr(no) {
         const text = ocrFile_(f.id, f.name);
         out.push({ ik, fk, name: f.name, id: f.id, len: text.length, text });
       } catch (e) {
-        if (/Drive API/.test(e.message)) throw e;
+        if (/Drive API|권한|permission|authoriz/i.test(e.message)) throw e; // 권한 문제는 기록하지 않고 바로 알림
         out.push({ ik, fk, name: f.name, id: f.id, len: -1, text: '', err: e.message });
       }
     });
