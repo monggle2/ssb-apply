@@ -186,6 +186,8 @@ details summary{cursor:pointer;color:var(--accent);font-size:13.5px}
 .hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
 .plist{display:grid;gap:10px}.pcard{display:block;text-align:left;width:100%;cursor:pointer;font:inherit;color:inherit}
 .pcard:hover{border-color:var(--accent)}
+.term{display:grid;gap:6px}.tbody{max-height:170px;overflow:auto;white-space:pre-line;font-size:13px;line-height:1.6;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--sunk)}
+.allagree{font-weight:700;border-top:1px solid var(--line);padding-top:10px}
 
 </style>
 </head>
@@ -312,8 +314,10 @@ function fField(it,f){
       return `<div class="field"><span class="flabel" id="${id}">${esc(f.label)}${star}</span><div class="choices" role="radiogroup" aria-labelledby="${id}">${f.opts.map((o,i)=>`<label><input type="radio" name="${id}" id="${id}-${i}" ${nm} value="${esc(o)}"${o===v?' checked':''}>${esc(o)}</label>`).join('')}</div></div>`;
     case 'checks':
       return `<div class="field"><span class="flabel" id="${id}">${esc(f.label)}${star}</span><div class="choices" role="group" aria-labelledby="${id}">${f.opts.map((o,i)=>`<label><input type="checkbox" id="${id}-${i}" ${nm} data-multi="1" value="${esc(o)}"${(v||[]).includes(o)?' checked':''}>${esc(o)}</label>`).join('')}</div></div>`;
-    case 'consent':
-      return `<div class="field"><span class="flabel" id="${id}">${esc(f.label)}${star}</span><div class="stack" style="gap:6px">${f.opts.map((o,i)=>`<label class="switch" style="font-size:14px"><input type="checkbox" id="${id}-${i}" ${nm} data-multi="1" value="${esc(o)}"${(v||[]).includes(o)?' checked':''}>${esc(o)}</label>`).join('')}</div></div>`;
+    case 'consent':{
+      const bd=f.bodies||[];const all=f.opts.every(o=>(v||[]).includes(o));
+      return `<div class="field"><div class="stack terms" style="gap:10px">${f.opts.map((o,i)=>`<div class="term"><b>${esc(o)}</b>${bd[i]?`<div class="tbody" tabindex="0">${esc(bd[i])}</div>`:''}<label class="switch" style="font-size:14px"><input type="checkbox" id="${id}-${i}" ${nm} data-multi="1" value="${esc(o)}"${(v||[]).includes(o)?' checked':''}>동의합니다</label></div>`).join('')}
+        <label class="switch allagree"><input type="checkbox" ${nm} data-all="1"${all?' checked':''}>위 내용에 모두 동의합니다</label></div></div>`;}
     case 'file':{
       const fs=S.files[it.key+'.'+f.k]||[];
       return `<div class="field">${lab}<input type="file" id="${id}" ${nm} data-file="1" multiple accept="${ACCEPT}">
@@ -337,7 +341,8 @@ function bindApply(secs){
   f.addEventListener('input',e=>{const t=e.target;const ik=t.dataset.ik,fk=t.dataset.fk;if(!ik||t.dataset.file)return;
     if(t.dataset.row!=null){const arr=(val(ik,fk)||[]).slice();const r=+t.dataset.row;arr[r]={...(arr[r]||{}),[t.dataset.col]:t.dataset.num?t.value.replace(/[^\d]/g,''):t.value};setF(ik,fk,arr);return}
     if(t.dataset.scale!=null){const o={...(val(ik,fk)||{})};o[t.dataset.scale]=+t.value;setF(ik,fk,o);return}
-    if(t.dataset.multi){const box=t.closest('.choices,.stack');const arr=[...box.querySelectorAll('input:checked')].map(x=>x.value);setF(ik,fk,arr);return}
+    if(t.dataset.all){const box=t.closest('.terms');box.querySelectorAll('input[data-multi]').forEach(x=>x.checked=t.checked);const one=box.querySelector('input[data-multi]');if(one){const arr=[...box.querySelectorAll('input[data-multi]:checked')].map(x=>x.value);setF(one.dataset.ik,one.dataset.fk,arr)}return}
+    if(t.dataset.multi){const box=t.closest('.terms,.choices,.stack');const arr=[...box.querySelectorAll('input[data-multi]:checked')].map(x=>x.value);setF(ik,fk,arr);const al=box.querySelector('[data-all]');if(al)al.checked=box.querySelectorAll('input[data-multi]:not(:checked)').length===0;return}
     if(t.dataset.num){const raw=t.value.replace(/[^\d]/g,'');setF(ik,fk,raw===''?'':+raw);return}
     setF(ik,fk,t.value);
     const c=el.querySelector(`[data-count="${t.id}"]`);if(c)c.textContent=`${t.value.length} / ${t.maxLength}자`;

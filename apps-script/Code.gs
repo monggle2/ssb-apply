@@ -124,6 +124,14 @@ function inPeriod_(p) {
   return true;
 }
 
+/* 동의 항목은 Consent.gs 문구로 고정 */
+function withConsent_(secs) {
+  secs.forEach(s => s.items.forEach(it => it.fields.forEach(f => {
+    if (f.t === 'consent' && typeof CONSENT !== 'undefined') { f.opts = CONSENT.map(c => c.title); f.bodies = CONSENT.map(c => c.body); }
+  })));
+  return secs;
+}
+
 /* ---------- 신청 페이지용 API ---------- */
 function doGet(e) {
   const q = (e && e.parameter) || {};
@@ -136,7 +144,7 @@ function doGet(e) {
     const p = readPrograms_().find(x => x.id === q.pid);
     if (!p || !p.open) return out_({ ok: false, error: '접수 중인 사업이 아닙니다.' });
     if (!inPeriod_(p)) return out_({ ok: false, error: '모집 기간이 아닙니다(' + (p.start || '') + ' ~ ' + (p.end || '') + ').' });
-    const sections = effItems(p).map(s => ({ sec: s.sec, title: s.title, items: s.items.filter(i => i.on).map(i => ({ key: i.key, label: i.label, req: i.req, help: i.help, anyOf: !!i.anyOf, fields: i.fields })) })).filter(s => s.items.length);
+    const sections = withConsent_(effItems(p)).map(s => ({ sec: s.sec, title: s.title, items: s.items.filter(i => i.on).map(i => ({ key: i.key, label: i.label, req: i.req, help: i.help, anyOf: !!i.anyOf, fields: i.fields })) })).filter(s => s.items.length);
     return out_({ ok: true, program: { id: p.id, name: p.name, module: p.module, start: p.start, end: p.end, notice: p.notice, demo: p.demo, hasCode: !!p.code, sections } });
   }
   if (!isStaff_()) {
@@ -156,7 +164,7 @@ function doPost(e) {
     if (!inPeriod_(p)) return out_({ ok: false, error: '모집 기간이 아닙니다.' });
     if (p.code && String(b.code || '').trim().toUpperCase() !== p.code.trim().toUpperCase()) return out_({ ok: false, error: '신청 코드가 맞지 않습니다. 공고문의 신청 코드를 확인해 주세요.', field: 'code' });
 
-    const secs = effItems(p);
+    const secs = withConsent_(effItems(p));
     const raw = b.answers || {};
     // 켜진 항목만 받고 글자 수를 제한
     const answers = {};

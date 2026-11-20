@@ -37,7 +37,7 @@ const CATALOG=[
  ]},
  {sec:'E',title:'제출 서류',scope:'common',items:[
   {key:'brc',label:'사업자등록증명원',req:true,fields:[{k:'file',label:'파일',t:'file'}]},
-  {key:'consent',label:'개인(신용)정보 동의',req:true,fields:[{k:'agree',label:'동의 항목',t:'consent',opts:['개인(신용)정보 수집·이용 동의(고유식별정보 포함)','개인(신용)정보 제공·조회 동의(고유식별정보 포함)','개인(신용)정보 제3자 제공 동의(고유식별정보 포함)']},{k:'file',label:'동의서(자필 서명본)',t:'file'}]},
+  {key:'consent',label:'개인(신용)정보 동의',req:true,help:'내용을 읽고 항목마다 동의해 주세요',fields:[{k:'agree',label:'동의 항목',t:'consent',opts:['개인(신용)정보 수집·이용 동의(고유식별정보 포함)','개인(신용)정보 제공·조회 동의(고유식별정보 포함)','개인(신용)정보 제3자 제공 동의(고유식별정보 포함)']}]},
   {key:'bank',label:'통장 사본',req:true,fields:[{k:'file',label:'파일',t:'file'}]},
   {key:'proof',label:'사업장 운영 증빙',req:true,anyOf:true,help:'사진 또는 온라인 주소 중 하나 이상',fields:[{k:'file',label:'사업장 사진',t:'file',opt:true},{k:'url',label:'온라인 주소',t:'url',opt:true,ph:'https://'}]}
  ]},
