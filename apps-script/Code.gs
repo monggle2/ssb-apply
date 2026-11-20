@@ -5,11 +5,12 @@
  * 이 스크립트는 스프레드시트에 붙어 있어야 합니다(확장 프로그램 → Apps Script).
  */
 
-const SH = { P: '사업설정', S: '담당자', A: '신청목록', I: '면접기록', O: '서류판독' };
+const SH = { P: '사업설정', S: '담당자', A: '신청목록', I: '면접기록', O: '서류판독', N: '사업자상태' };
 const PH = ['사업ID', '사업명', '모듈', '모집시작', '모집마감', '신청코드', '접수중', '시연용', '안내문구', '설정JSON', '수정일시', '수정자'];
 const SH_STAFF = ['이메일', '이름', '메모'];
 const AH = ['접수번호', '사업ID', '사업명', '제출일시', '상호', '대표자', '연락처', '이메일', '상태', '사유구분', '판정메모', '판정일시', '면접총점', '서류폴더', '원본JSON'];
 const OH = ['접수번호', '항목', '칸', '파일명', '파일ID', '글자수', '판독글자', '판독일시', '판독자'];
+const NH = ['접수번호', '사업자번호', '상태', '상태코드', '과세유형', '폐업일', '조회일시', '조회자'];
 const IH = ['접수번호', '면접관', '면접일', '총점', '영역점수JSON', '점수JSON', '메모JSON', '저장일시', '저장자'];
 const TZ = 'Asia/Seoul';
 const MAX_FILE = 10 * 1024 * 1024;
@@ -32,6 +33,7 @@ function setup() {
   ensureSheet_(SH.A, AH);
   ensureSheet_(SH.I, IH);
   ensureSheet_(SH.O, OH);
+  ensureSheet_(SH.N, NH);
   const me = Session.getActiveUser().getEmail();
   if (me && !staffList_().includes(me.toLowerCase())) staff.appendRow([me, '', '초기 설정한 사람']);
   const props = PropertiesService.getScriptProperties();
@@ -303,6 +305,9 @@ function adminListApps(pid) {
     try { o.notes = JSON.parse(r[6] || '{}'); } catch (e) {}
     iv[String(r[0])] = o;
   });
+  const nts = {};
+  rows_(SH.N).forEach(r => { const t = v => str_(v).replace(/^'/, '');
+    nts[String(r[0])] = { bno: t(r[1]), stt: str_(r[2]), cd: t(r[3]), tax: str_(r[4]), end: t(r[5]), at: r[6] instanceof Date ? r[6].getTime() : 0 }; });
   return rows_(SH.A).filter(r => String(r[1]) === pid).map(r => {
     let answers = {};
     try {
@@ -312,7 +317,7 @@ function adminListApps(pid) {
     return {
       id: String(r[0]), pid: String(r[1]), progName: str_(r[2]), submittedAt: r[3] instanceof Date ? r[3].getTime() : 0,
       bizName: str_(r[4]), ceo: str_(r[5]), status: str_(r[8]) || '접수', elig: { kind: str_(r[9]), note: str_(r[10]) },
-      folder: str_(r[13]), answers, ocr: ocr[String(r[0])] || null, interview: iv[String(r[0])] || { scores: {}, notes: {}, interviewer: '', date: '' }
+      folder: str_(r[13]), answers, ocr: ocr[String(r[0])] || null, nts: nts[String(r[0])] || null, interview: iv[String(r[0])] || { scores: {}, notes: {}, interviewer: '', date: '' }
     };
   });
 }
@@ -404,4 +409,51 @@ function adminOcr(no) {
   const now = new Date();
   out.forEach(o => sh.appendRow([no, o.ik, o.fk, o.name, o.id, o.len, o.err ? o.err : cell_(o.text.slice(0, 45000)), now, me]));
   return out.map(o => ({ ik: o.ik, fk: o.fk, name: o.name, len: o.len, text: o.text.slice(0, 8000), err: o.err || '', at: now.getTime() }));
+}
+
+/* ---------- 사업자 상태 조회 (국세청 공공데이터 API) ----------
+ * 공공데이터포털 인증키(Decoding)를 스크립트 속성 NTS_KEY 에 넣어야 동작함 */
+function adminBizStatus(nos) {
+  const me = requireStaff_();
+  const key = PropertiesService.getScriptProperties().getProperty('NTS_KEY');
+  if (!key) throw new Error('인증키가 없습니다. Apps Script 프로젝트 설정 → 스크립트 속성에 NTS_KEY 를 넣어 주세요.');
+  const want = {};
+  (nos || []).forEach(n => want[String(n)] = true);
+  const list = [];
+  rows_(SH.A).forEach(r => {
+    if (!want[String(r[0])]) return;
+    let a = {};
+    try { const raw = String(r[14] || '{}'); a = JSON.parse(raw.indexOf('FILE:') === 0 ? DriveApp.getFileById(raw.slice(5)).getBlob().getDataAsString('UTF-8') : raw); } catch (e) {}
+    const b = String(((a.biz || {}).brn) || '').replace(/[^0-9]/g, '');
+    list.push({ no: String(r[0]), b });
+  });
+  const ok = list.filter(x => x.b.length === 10);
+  const res = {};
+  for (let i = 0; i < ok.length; i += 100) {
+    const chunk = ok.slice(i, i + 100);
+    const resp = UrlFetchApp.fetch('https://api.odcloud.kr/api/nts-businessman/v1/status?serviceKey=' + encodeURIComponent(key), {
+      method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+      payload: JSON.stringify({ b_no: chunk.map(x => x.b) })
+    });
+    const code = resp.getResponseCode();
+    if (code !== 200) throw new Error('국세청 조회 실패(' + code + '): ' + resp.getContentText().slice(0, 200));
+    const j = JSON.parse(resp.getContentText());
+    (j.data || []).forEach(d => { res[d.b_no] = d; });
+  }
+  const sh = sheet_(SH.N) || ensureSheet_(SH.N, NH);
+  const ids = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues().map(r => String(r[0])) : [];
+  const now = new Date();
+  const out = {};
+  list.forEach(x => {
+    const d = res[x.b];
+    const o = x.b.length !== 10 ? { bno: x.b, stt: '', cd: '', tax: '사업자번호 자릿수 오류', end: '' }
+      : d ? { bno: x.b, stt: d.b_stt || '', cd: d.b_stt_cd || '', tax: d.tax_type || '', end: d.end_dt || '' }
+      : { bno: x.b, stt: '', cd: '', tax: '조회 결과 없음', end: '' };
+    const tx = v => v ? "'" + v : '';
+    const row = [x.no, tx(x.b), o.stt, tx(o.cd), o.tax, tx(o.end), now, me];
+    const i = ids.indexOf(x.no);
+    if (i >= 0) sh.getRange(i + 2, 1, 1, row.length).setValues([row]); else { sh.appendRow(row); ids.push(x.no); }
+    out[x.no] = Object.assign(o, { at: now.getTime() });
+  });
+  return out;
 }
