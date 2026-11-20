@@ -355,9 +355,23 @@ function ocrFile_(fileId, name) {
   let doc;
   if (Drive.Files.create) doc = Drive.Files.create({ name: '_판독_' + name, mimeType: 'application/vnd.google-apps.document' }, blob, { ocrLanguage: 'ko', fields: 'id' });
   else doc = Drive.Files.insert({ title: '_판독_' + name, mimeType: 'application/vnd.google-apps.document' }, blob, { ocr: true, ocrLanguage: 'ko' });
-  // 문서 권한 없이 드라이브 권한만으로 글자를 꺼냄 (마크다운 기호 표시는 지움)
-  try { return DriveApp.getFileById(doc.id).getAs('text/markdown').getDataAsString('UTF-8').replace(/\\([\\`*_{}\[\]()#+\-.!>~|])/g, '$1'); }
+  try { return docText_(doc.id); }
   finally { try { DriveApp.getFileById(doc.id).setTrashed(true); } catch (e) {} }
+}
+
+/* 변환된 구글 문서에서 글자 꺼내기: 드라이브 고급 서비스 → 드라이브 API 직접 호출 → 문서 열기 순서로 시도 */
+function docText_(id) {
+  try {
+    const r = Drive.Files.export(id, 'text/plain', { alt: 'media' });
+    if (typeof r === 'string' && r) return r;
+    if (r && r.getDataAsString) return r.getDataAsString('UTF-8');
+  } catch (e) {}
+  try {
+    const res = UrlFetchApp.fetch('https://www.googleapis.com/drive/v3/files/' + id + '/export?mimeType=text%2Fplain',
+      { headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }, muteHttpExceptions: true });
+    if (res.getResponseCode() === 200) return res.getContentText('UTF-8');
+  } catch (e) {}
+  return DocumentApp.openById(id).getBody().getText();
 }
 
 function adminOcr(no) {
