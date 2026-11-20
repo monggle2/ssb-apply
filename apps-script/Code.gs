@@ -431,11 +431,19 @@ function adminBizStatus(nos) {
   const res = {};
   for (let i = 0; i < ok.length; i += 100) {
     const chunk = ok.slice(i, i + 100);
-    const resp = UrlFetchApp.fetch('https://api.odcloud.kr/api/nts-businessman/v1/status?serviceKey=' + encodeURIComponent(key), {
-      method: 'post', contentType: 'application/json', muteHttpExceptions: true,
-      payload: JSON.stringify({ b_no: chunk.map(x => x.b) })
-    });
+    // 일반 인증키 Decoding·Encoding 어느 쪽을 넣어도 되게 두 형태로 시도
+    const k = key.trim();
+    const forms = /%[0-9A-Fa-f]{2}/.test(k) ? [k, encodeURIComponent(decodeURIComponent(k))] : [encodeURIComponent(k), k];
+    let resp;
+    for (const f of forms) {
+      resp = UrlFetchApp.fetch('https://api.odcloud.kr/api/nts-businessman/v1/status?serviceKey=' + f, {
+        method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+        payload: JSON.stringify({ b_no: chunk.map(x => x.b) })
+      });
+      if (resp.getResponseCode() !== 401) break;
+    }
     const code = resp.getResponseCode();
+    if (code === 401) throw new Error('인증키가 아직 등록되지 않았습니다. 발급 직후에는 1~2시간 걸릴 수 있습니다. 스크립트 속성 NTS_KEY 값(일반 인증키)도 확인해 주세요.');
     if (code !== 200) throw new Error('국세청 조회 실패(' + code + '): ' + resp.getContentText().slice(0, 200));
     const j = JSON.parse(resp.getContentText());
     (j.data || []).forEach(d => { res[d.b_no] = d; });
