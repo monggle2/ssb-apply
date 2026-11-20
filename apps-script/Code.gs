@@ -5,10 +5,11 @@
  * 이 스크립트는 스프레드시트에 붙어 있어야 합니다(확장 프로그램 → Apps Script).
  */
 
-const SH = { P: '사업설정', S: '담당자', A: '신청목록', I: '면접기록' };
+const SH = { P: '사업설정', S: '담당자', A: '신청목록', I: '면접기록', O: '서류판독' };
 const PH = ['사업ID', '사업명', '모듈', '모집시작', '모집마감', '신청코드', '접수중', '시연용', '안내문구', '설정JSON', '수정일시', '수정자'];
 const SH_STAFF = ['이메일', '이름', '메모'];
 const AH = ['접수번호', '사업ID', '사업명', '제출일시', '상호', '대표자', '연락처', '이메일', '상태', '사유구분', '판정메모', '판정일시', '면접총점', '서류폴더', '원본JSON'];
+const OH = ['접수번호', '항목', '칸', '파일명', '파일ID', '글자수', '판독글자', '판독일시', '판독자'];
 const IH = ['접수번호', '면접관', '면접일', '총점', '영역점수JSON', '점수JSON', '메모JSON', '저장일시', '저장자'];
 const TZ = 'Asia/Seoul';
 const MAX_FILE = 10 * 1024 * 1024;
@@ -30,6 +31,7 @@ function setup() {
   const staff = ensureSheet_(SH.S, SH_STAFF);
   ensureSheet_(SH.A, AH);
   ensureSheet_(SH.I, IH);
+  ensureSheet_(SH.O, OH);
   const me = Session.getActiveUser().getEmail();
   if (me && !staffList_().includes(me.toLowerCase())) staff.appendRow([me, '', '초기 설정한 사람']);
   const props = PropertiesService.getScriptProperties();
@@ -112,7 +114,7 @@ function readPrograms_() {
       id: String(r[0]), name: str_(r[1]), module: str_(r[2]) === 'loan' ? 'loan' : 'online',
       start: str_(r[3]), end: str_(r[4]), code: str_(r[5]), open: r[6] === true || r[6] === 'Y' || r[6] === 'TRUE',
       demo: r[7] === true || r[7] === 'Y' || r[7] === 'TRUE', notice: str_(r[8]),
-      items: cfg.items || {}, qs: cfg.qs || {},
+      items: cfg.items || {}, qs: cfg.qs || {}, rules: cfg.rules || {},
       updatedAt: r[10] instanceof Date ? r[10].getTime() : (Number(r[10]) || 0), updatedBy: str_(r[11])
     };
   });
@@ -279,7 +281,7 @@ function adminSaveProgram(p) {
   if (!p || !p.id || !String(p.name || '').trim()) throw new Error('사업 이름이 필요합니다.');
   const sh = sheet_(SH.P);
   const row = [p.id, p.name, p.module === 'loan' ? 'loan' : 'online', p.start || '', p.end || '', p.code || '', p.open ? 'Y' : 'N', p.demo ? 'Y' : 'N', p.notice || '',
-    JSON.stringify({ items: p.items || {}, qs: p.qs || {} }), new Date(), me];
+    JSON.stringify({ items: p.items || {}, qs: p.qs || {}, rules: p.rules || {} }), new Date(), me];
   const ids = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues().map(r => String(r[0])) : [];
   const i = ids.indexOf(p.id);
   sh.getRange(1, 4, sh.getMaxRows(), 2).setNumberFormat('@'); // 날짜를 글자로 보관
@@ -289,6 +291,11 @@ function adminSaveProgram(p) {
 
 function adminListApps(pid) {
   requireStaff_();
+  const ocr = {};
+  rows_(SH.O).forEach(r => {
+    const no = String(r[0]);
+    (ocr[no] = ocr[no] || []).push({ ik: str_(r[1]), fk: str_(r[2]), name: str_(r[3]), len: Number(r[5]) || 0, text: String(r[6] || '').slice(0, 8000), err: Number(r[5]) < 0 ? String(r[6] || '') : '', at: r[7] instanceof Date ? r[7].getTime() : 0 });
+  });
   const iv = {};
   rows_(SH.I).forEach(r => {
     const o = { interviewer: str_(r[1]), date: str_(r[2]), scores: {}, notes: {} };
@@ -305,7 +312,7 @@ function adminListApps(pid) {
     return {
       id: String(r[0]), pid: String(r[1]), progName: str_(r[2]), submittedAt: r[3] instanceof Date ? r[3].getTime() : 0,
       bizName: str_(r[4]), ceo: str_(r[5]), status: str_(r[8]) || '접수', elig: { kind: str_(r[9]), note: str_(r[10]) },
-      folder: str_(r[13]), answers, interview: iv[String(r[0])] || { scores: {}, notes: {}, interviewer: '', date: '' }
+      folder: str_(r[13]), answers, ocr: ocr[String(r[0])] || null, interview: iv[String(r[0])] || { scores: {}, notes: {}, interviewer: '', date: '' }
     };
   });
 }
@@ -335,4 +342,51 @@ function adminSaveInterview(no, iv, total, areas) {
   const ra = findRow_(SH.A, no);
   if (ra > 0) sheet_(SH.A).getRange(ra, 13).setValue(total == null ? '' : total);
   return true;
+}
+
+/* ---------- 서류 글자 읽기 (구글 드라이브 OCR) ----------
+ * Apps Script 왼쪽 '서비스' ＋ → Drive API 를 추가해야 동작함 */
+const OCR_EXT = ['pdf', 'jpg', 'jpeg', 'png', 'gif', 'docx'];
+const OCR_SKIP = ['m_prod.photo', 'proof.file']; // 상품·사업장 사진은 읽지 않음
+
+function ocrFile_(fileId, name) {
+  if (typeof Drive === 'undefined') throw new Error('Drive API 서비스가 꺼져 있습니다. Apps Script 왼쪽 서비스 ＋ → Drive API 를 추가해 주세요.');
+  const blob = DriveApp.getFileById(fileId).getBlob();
+  let doc;
+  if (Drive.Files.create) doc = Drive.Files.create({ name: '_판독_' + name, mimeType: 'application/vnd.google-apps.document' }, blob, { ocrLanguage: 'ko', fields: 'id' });
+  else doc = Drive.Files.insert({ title: '_판독_' + name, mimeType: 'application/vnd.google-apps.document' }, blob, { ocr: true, ocrLanguage: 'ko' });
+  try { return DocumentApp.openById(doc.id).getBody().getText(); }
+  finally { try { DriveApp.getFileById(doc.id).setTrashed(true); } catch (e) {} }
+}
+
+function adminOcr(no) {
+  const me = requireStaff_();
+  const r = findRow_(SH.A, no);
+  if (r < 0) throw new Error('접수번호를 찾을 수 없습니다: ' + no);
+  const raw = String(sheet_(SH.A).getRange(r, 15).getValue() || '{}');
+  const answers = JSON.parse(raw.indexOf('FILE:') === 0 ? DriveApp.getFileById(raw.slice(5)).getBlob().getDataAsString('UTF-8') : raw);
+  const out = [];
+  Object.keys(answers).forEach(ik => Object.keys(answers[ik] || {}).forEach(fk => {
+    const v = answers[ik][fk];
+    if (!Array.isArray(v)) return;
+    v.forEach(f => {
+      if (!f || !f.id || !f.name) return;
+      const ext = String(f.name).split('.').pop().toLowerCase();
+      if (!OCR_EXT.includes(ext) || OCR_SKIP.includes(ik + '.' + fk)) return;
+      try {
+        const text = ocrFile_(f.id, f.name);
+        out.push({ ik, fk, name: f.name, id: f.id, len: text.length, text });
+      } catch (e) {
+        if (/Drive API/.test(e.message)) throw e;
+        out.push({ ik, fk, name: f.name, id: f.id, len: -1, text: '', err: e.message });
+      }
+    });
+  }));
+  const sh = sheet_(SH.O) || ensureSheet_(SH.O, OH);
+  // 같은 접수번호의 예전 판독 결과 지우기
+  const ids = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues().map(r => String(r[0])) : [];
+  for (let i = ids.length - 1; i >= 0; i--) if (ids[i] === no) sh.deleteRow(i + 2);
+  const now = new Date();
+  out.forEach(o => sh.appendRow([no, o.ik, o.fk, o.name, o.id, o.len, o.err ? o.err : cell_(o.text.slice(0, 45000)), now, me]));
+  return out.map(o => ({ ik: o.ik, fk: o.fk, name: o.name, len: o.len, text: o.text.slice(0, 8000), err: o.err || '', at: now.getTime() }));
 }
