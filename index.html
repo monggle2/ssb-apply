@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>지원사업 신청</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@500;600;700&family=Noto+Sans+KR:wght@400;500;700&display=swap">
+<style>
+
+/* Layout: 상단 탭 3개(설계·신청·접수함) + 사업 선택. 설계는 2단(목록|요약), 접수함은 목록|상세 2단. 서류 양식 같은 정돈된 업무 화면 */
+:root{
+  --bg:#f3f5f4; --surface:#ffffff; --sunk:#eef1f0; --ink:#17221f; --muted:#5b6a66; --line:#d8dfdc; --line2:#bfc9c5;
+  --accent:#0f5c55; --accent-ink:#ffffff; --accent-soft:#e1efec;
+  --ok:#1f7a3f; --ok-soft:#e3f3e8; --warn:#8a5a00; --warn-soft:#fbf0d9; --bad:#a3322a; --bad-soft:#f9e6e4; --info:#2b5a8a; --info-soft:#e5eef8;
+  --display:"IBM Plex Sans KR","Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  --body:"Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#111816; --surface:#18211e; --sunk:#141c19; --ink:#e6eeeb; --muted:#9db0aa; --line:#2b3834; --line2:#3a4a45;
+  --accent:#5fc2b4; --accent-ink:#0c1715; --accent-soft:#1d3531;
+  --ok:#6fd08f; --ok-soft:#173022; --warn:#e7b85a; --warn-soft:#33280f; --bad:#f08b80; --bad-soft:#3a1c19; --info:#8fb8e6; --info-soft:#1b2a3a; color-scheme:dark;}}
+:root[data-theme="dark"]{
+  --bg:#111816; --surface:#18211e; --sunk:#141c19; --ink:#e6eeeb; --muted:#9db0aa; --line:#2b3834; --line2:#3a4a45;
+  --accent:#5fc2b4; --accent-ink:#0c1715; --accent-soft:#1d3531;
+  --ok:#6fd08f; --ok-soft:#173022; --warn:#e7b85a; --warn-soft:#33280f; --bad:#f08b80; --bad-soft:#3a1c19; --info:#8fb8e6; --info-soft:#1b2a3a; color-scheme:dark;}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font:15px/1.6 var(--body);-webkit-font-smoothing:antialiased}
+h1,h2,h3,h4{font-family:var(--display);text-wrap:balance;margin:0;line-height:1.35}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+a{color:var(--accent)}
+.wrap{max-width:1180px;margin:0 auto;padding:0 20px}
+header.top{background:var(--surface);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+.topbar{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:12px 0}
+.brand{display:flex;flex-direction:column;gap:0;margin-right:auto}
+.brand h1{font-size:18px}
+.brand span{font-size:12.5px;color:var(--muted)}
+.tabs{display:flex;gap:4px;background:var(--sunk);border:1px solid var(--line);border-radius:8px;padding:3px}
+.tabs button{border:0;background:transparent;padding:7px 14px;border-radius:6px;cursor:pointer;font-weight:500;color:var(--muted)}
+.tabs button[aria-selected="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgb(0 0 0 / .12)}
+.progpick{display:flex;align-items:center;gap:8px}
+.progpick label{font-size:13px;color:var(--muted)}
+select,input[type=text],input[type=email],input[type=tel],input[type=number],input[type=date],input[type=month],input[type=url],textarea{
+  background:var(--surface);border:1px solid var(--line2);border-radius:6px;padding:8px 10px;min-width:0;width:100%}
+textarea{resize:vertical;min-height:84px}
+select{width:auto;max-width:100%}
+.progpick select{min-width:220px}
+.btn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line2);background:var(--surface);border-radius:6px;padding:7px 13px;cursor:pointer;font-weight:500;white-space:nowrap}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.ghost{border-color:transparent;background:transparent;color:var(--accent);padding:4px 8px}
+.btn.sm{padding:4px 9px;font-size:13px}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.notice{font-size:13.5px;padding:9px 12px;border-radius:6px;background:var(--info-soft);color:var(--ink);border:1px solid var(--line)}
+.notice.warn{background:var(--warn-soft)}
+.notice.bad{background:var(--bad-soft)}
+main{padding:20px 0 60px}
+.view[hidden]{display:none}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:18px 20px}
+.grid2{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:18px;align-items:start}
+.sticky{position:sticky;top:84px}
+.stack{display:grid;gap:14px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.muted{color:var(--muted)}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.sm{font-size:13px}
+.pill{display:inline-flex;align-items:center;font-size:12px;font-weight:600;border-radius:999px;padding:1px 9px;background:var(--sunk);color:var(--muted);white-space:nowrap;border:1px solid var(--line)}
+.pill.ok{background:var(--ok-soft);color:var(--ok);border-color:transparent}
+.pill.bad{background:var(--bad-soft);color:var(--bad);border-color:transparent}
+.pill.warn{background:var(--warn-soft);color:var(--warn);border-color:transparent}
+.pill.info{background:var(--info-soft);color:var(--info);border-color:transparent}
+.pill.acc{background:var(--accent-soft);color:var(--accent);border-color:transparent}
+.sechead{display:flex;align-items:baseline;gap:10px;margin:6px 0 2px}
+.sechead h3{font-size:16px}
+.sechead .code{font-family:var(--display);font-weight:700;color:var(--accent);font-variant-numeric:tabular-nums}
+.field{display:grid;gap:6px}
+.field>label,.flabel{font-weight:500;font-size:14px}
+.req{color:var(--bad);margin-left:3px}
+.help{font-size:12.5px;color:var(--muted)}
+/* designer */
+.ditem{border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+.ditem.off{background:var(--sunk)}
+.ditem.off .dname{color:var(--muted);text-decoration:line-through;text-decoration-color:var(--line2)}
+.dhead{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;gap:12px;align-items:center;padding:10px 12px}
+.dname{font-weight:500}
+.dtype{font-size:12.5px;color:var(--muted)}
+.dedit{border-top:1px dashed var(--line);padding:12px;display:grid;gap:10px;background:var(--sunk);border-radius:0 0 8px 8px}
+.switch{display:inline-flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;white-space:nowrap}
+.switch input{width:17px;height:17px;accent-color:var(--accent);margin:0}
+.fgrid{display:grid;grid-template-columns:140px minmax(0,1fr);gap:8px 10px;align-items:center}
+.fgrid .k{font-size:12.5px;color:var(--muted)}
+.qtext{font-size:14px}
+.anc{display:grid;gap:6px;margin:0;padding:0;list-style:none}
+.anc li{display:grid;grid-template-columns:34px minmax(0,1fr);gap:8px;font-size:13.5px}
+.anc b{font-variant-numeric:tabular-nums}
+.summary dl{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 10px;margin:0}
+.summary dt{color:var(--muted);font-size:13.5px}
+.summary dd{margin:0;font-weight:600;font-variant-numeric:tabular-nums;text-align:right}
+/* applicant form */
+.form{max-width:780px;margin:0 auto;display:grid;gap:18px}
+.fsec{display:grid;gap:16px}
+.fitem{display:grid;gap:10px;padding:14px 0;border-top:1px solid var(--line)}
+.fitem:first-of-type{border-top:0}
+.fitem h4{font-size:15px}
+.subgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.choices{display:flex;flex-wrap:wrap;gap:6px 14px}
+.choices label{display:inline-flex;align-items:center;gap:6px;font-size:14px;cursor:pointer}
+.choices input{accent-color:var(--accent);width:16px;height:16px;margin:0}
+.unit{display:flex;align-items:center;gap:6px}
+.unit span{font-size:13px;color:var(--muted);white-space:nowrap}
+.tbl{overflow-x:auto;border:1px solid var(--line);border-radius:6px}
+table{border-collapse:collapse;width:100%}
+th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;font-size:14px}
+th{background:var(--sunk);font-weight:600;font-size:12.5px;color:var(--muted);white-space:nowrap}
+tr:last-child td{border-bottom:0}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+.scale td{white-space:nowrap}
+.scale td:first-child{white-space:normal}
+.err{color:var(--bad);font-size:12.5px}
+.fitem.invalid{border-left:3px solid var(--bad);padding-left:10px}
+.filelist{display:flex;flex-wrap:wrap;gap:6px}
+.done{text-align:center;padding:40px 20px;display:grid;gap:10px;justify-items:center}
+.done .no{font-family:var(--display);font-size:22px;font-weight:700;color:var(--accent);font-variant-numeric:tabular-nums}
+/* inbox */
+.inbox{display:grid;grid-template-columns:minmax(0,420px) minmax(0,1fr);gap:18px;align-items:start}
+.alist{display:grid;gap:0}
+.arow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;padding:11px 14px;border-bottom:1px solid var(--line);cursor:pointer;background:var(--surface);text-align:left;border-left:3px solid transparent;width:100%;border-top:0;border-right:0}
+.arow:hover{background:var(--sunk)}
+.arow[aria-current="true"]{border-left-color:var(--accent);background:var(--accent-soft)}
+.arow .t{font-weight:600}
+.arow .s{font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.arow .r{display:flex;gap:6px;align-items:center;justify-content:flex-end}
+.score{font-family:var(--display);font-weight:700;font-variant-numeric:tabular-nums}
+.kv{display:grid;grid-template-columns:200px minmax(0,1fr);gap:0;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.kv>div{padding:8px 12px;border-bottom:1px solid var(--line);font-size:14px;overflow-wrap:anywhere}
+.kv>div:nth-last-child(-n+2){border-bottom:0}
+.kv .k{background:var(--sunk);color:var(--muted);font-size:13px}
+.kv .g{grid-column:1/-1;background:var(--accent-soft);color:var(--accent);font-weight:700;font-size:13px}
+.thumbs{display:flex;gap:8px;flex-wrap:wrap}
+.thumbs a{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:6px;padding:4px 8px;font-size:13px;text-decoration:none;background:var(--surface)}
+.thumbs img{width:44px;height:44px;object-fit:cover;border-radius:4px}
+.dtabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin:4px 0 14px;overflow-x:auto}
+.dtabs button{border:0;background:transparent;padding:9px 14px;cursor:pointer;border-bottom:2px solid transparent;font-weight:500;color:var(--muted);white-space:nowrap}
+.dtabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent)}
+.iq{border:1px solid var(--line);border-radius:8px;padding:14px;display:grid;gap:8px;background:var(--surface)}
+.iq.na{background:var(--sunk)}
+.iqh{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.iqh .no{font-family:var(--display);font-weight:700;color:var(--accent)}
+.probe{margin:0;padding-left:18px;font-size:13.5px;color:var(--muted)}
+.scorebtns{display:flex;gap:4px;flex-wrap:wrap}
+.scorebtns button{min-width:40px;padding:6px 0;border:1px solid var(--line2);background:var(--surface);border-radius:6px;cursor:pointer;font-variant-numeric:tabular-nums;font-weight:600}
+.scorebtns button.na{min-width:72px;font-weight:500;font-size:13px}
+.scorebtns button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+details summary{cursor:pointer;color:var(--accent);font-size:13.5px}
+.areabar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;align-items:center;font-size:13.5px}
+.meter{grid-column:1/-1;height:6px;border-radius:3px;background:var(--sunk);overflow:hidden}
+.meter i{display:block;height:100%;background:var(--accent)}
+.total{display:flex;align-items:baseline;justify-content:space-between;border-top:1px solid var(--line);padding-top:10px;margin-top:4px}
+.total .score{font-size:26px}
+.empty{padding:28px;text-align:center;color:var(--muted)}
+.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:9px 16px;border-radius:6px;font-size:14px;z-index:20}
+.toast[hidden]{display:none}
+@media (max-width:900px){
+  .grid2,.inbox{grid-template-columns:1fr}
+  .sticky{position:static}
+  .kv{grid-template-columns:1fr}
+  .kv .k{border-bottom:0}
+}
+@media (max-width:560px){
+  .wrap{padding:0 16px}
+  .dhead{grid-template-columns:auto minmax(0,1fr);}
+  .dhead .dtype{grid-column:2}
+  .fgrid{grid-template-columns:1fr}
+  .progpick select{min-width:0;width:100%}
+  .progpick{width:100%}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+
+
+.linkbox{display:flex;gap:6px;align-items:center}.linkbox input{flex:1;min-width:0;font-size:13px}
+.toplinks{display:flex;gap:10px;align-items:center;font-size:13px;flex-wrap:wrap}.toplinks a{color:var(--accent)}
+.hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
+.plist{display:grid;gap:10px}.pcard{display:block;text-align:left;width:100%;cursor:pointer;font:inherit;color:inherit}
+.pcard:hover{border-color:var(--accent)}
+
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap topbar">
+    <div class="brand"><h1>지원사업 신청</h1><span>내부 시연·테스트용 · 실제 신청자 정보는 넣지 마세요</span></div>
+  </div>
+</header>
+<main class="wrap" style="max-width:860px">
+  <section class="view" id="view-apply"><div class="panel empty">불러오는 중입니다.</div></section>
+</main>
+<div class="toast" id="toast" role="status" hidden></div>
+<script src="config.js"></script>
+<script>
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const clone=o=>JSON.parse(JSON.stringify(o));
+const won=n=>(n===''||n==null||isNaN(n))?'':Number(n).toLocaleString('ko-KR');
+function toast(m){const t=$('#toast');t.textContent=m;t.hidden=false;clearTimeout(toast._t);toast._t=setTimeout(()=>t.hidden=true,2600)}
+function filled(f,v){
+  if(f.t==='file')return Array.isArray(v)&&v.length>0;
+  if(f.t==='checks')return Array.isArray(v)&&v.length>0;
+  if(f.t==='consent')return Array.isArray(v)&&v.length===f.opts.length;
+  if(f.t==='scale4')return v&&f.stmts.every((_,i)=>v[i]);
+  if(f.t==='rows')return Array.isArray(v)&&v.some(r=>r&&Object.values(r).some(x=>String(x).trim()));
+  return v!==undefined&&v!==null&&String(v).trim()!=='';
+}
+
+const API=(window.API_URL||'').trim();
+const OK_EXT=['pdf','jpg','jpeg','png','gif','webp','hwp','hwpx','doc','docx','xls','xlsx'];
+const ACCEPT='.pdf,.jpg,.jpeg,.png,.gif,.webp,.hwp,.hwpx,.doc,.docx,.xls,.xlsx';
+const MAX_FILE=10*1024*1024,MAX_TOTAL=25*1024*1024;
+const S={program:null,form:{},files:{},submitted:null,applyErr:{},code:''};
+const $=s=>document.querySelector(s);
+async function api(q){const r=await fetch(API+'?'+new URLSearchParams(q));if(!r.ok)throw new Error('서버 응답 '+r.status);return r.json()}
+function msg(html){$('#view-apply').innerHTML=`<div class="panel empty">${html}</div>`}
+async function boot(){
+  if(!API){msg('신청 페이지 설정이 끝나지 않았습니다. <code>config.js</code>에 접수 서버 주소(API_URL)를 넣어 주세요.');return}
+  const pid=new URLSearchParams(location.search).get('p');
+  try{
+    if(!pid){
+      const r=await api({api:'programs'});
+      if(!r.ok)throw new Error(r.error);
+      if(!r.programs.length){msg('지금 접수 중인 사업이 없습니다.');return}
+      $('#view-apply').innerHTML=`<div class="stack"><div class="panel"><h2 style="font-size:20px">신청할 사업을 고르세요</h2></div><div class="plist">${r.programs.map(p=>`<a class="panel pcard" href="?p=${encodeURIComponent(p.id)}" style="text-decoration:none"><b>${esc(p.name)}</b>${p.demo?' <span class="pill warn">시연용</span>':''}<div class="muted sm">${p.module==='loan'?'여신':'여신 외'}${p.start||p.end?' · '+esc(p.start||'')+' ~ '+esc(p.end||''):''}</div></a>`).join('')}</div></div>`;
+      return}
+    const r=await api({api:'config',pid});
+    if(!r.ok){msg(esc(r.error||'사업 정보를 불러오지 못했습니다.')+'<div style="margin-top:12px"><a href="./">접수 중인 사업 보기</a></div>');return}
+    S.program=r.program;document.title=r.program.name+' 신청서';renderApply();
+  }catch(e){msg('접수 서버에 연결하지 못했습니다. 잠시 후 다시 열어 주세요.<br><span class="muted sm">'+esc(e.message)+'</span>')}
+}
+function readB64(file){return new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>res(String(fr.result).split(',')[1]||'');fr.onerror=()=>rej(fr.error);fr.readAsDataURL(file)})}
+let submitting=false;
+async function submitApply(secs){
+  if(submitting)return;
+  S.applyErr=validate(secs);
+  if(Object.keys(S.applyErr).length){renderApply();const first=Object.keys(S.applyErr)[0];document.getElementById('fi-'+first)?.scrollIntoView({block:'center'});return}
+  const keys=Object.keys(S.files).filter(k=>S.files[k].length);
+  const total=keys.reduce((a,k)=>a+S.files[k].reduce((x,f)=>x+f.size,0),0);
+  if(total>MAX_TOTAL){toast('첨부 파일 합계가 25MB를 넘습니다. 파일 크기를 줄여 주세요.');return}
+  submitting=true;const btn=$('#a-submit'),st=$('#a-state');btn.disabled=true;
+  try{
+    const files=[];let n=0;const cnt=keys.reduce((a,k)=>a+S.files[k].length,0);
+    for(const k of keys){const [ik,fk]=k.split('.');for(const f of S.files[k]){n++;st.textContent=`파일 준비 중 ${n}/${cnt}`;files.push({ik,fk,name:f.name,type:f.type,data:await readB64(f)})}}
+    st.textContent='제출하는 중입니다. 창을 닫지 마세요.';
+    const body={pid:S.program.id,code:S.code||'',website:($('#a-hp')||{}).value||'',answers:clone(S.form),files};
+    const r=await fetch(API,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(body)});
+    const j=await r.json();
+    if(!j.ok){if(j.field==='code'){S.applyErr={__code:j.error};renderApply();document.getElementById('fi-__code')?.scrollIntoView({block:'center'})}else toast(j.error||'제출하지 못했습니다.');btn.disabled=false;st.textContent='';submitting=false;return}
+    S.submitted=j.no;S.applyErr={};S.form={};S.files={};renderApply();window.scrollTo(0,0);
+  }catch(e){toast('제출하지 못했습니다. 인터넷 연결을 확인하고 다시 시도해 주세요.');btn.disabled=false;st.textContent=''}
+  submitting=false;
+}
+
+function renderApply(){
+  const el=$('#view-apply');const p=S.program;if(!p)return;
+  if(S.submitted){el.innerHTML=`<div class="panel done"><h2 style="font-size:20px">신청이 접수되었습니다</h2><div class="no">${esc(S.submitted)}</div>
+    <p class="muted" style="margin:0">접수번호를 적어 두세요. 문의할 때 필요합니다.</p>
+    <div class="row" style="justify-content:center"><button class="btn" id="a-again">새 신청 작성</button></div></div>`;
+    $('#a-again').onclick=()=>{S.submitted=null;S.form={};S.files={};renderApply()};return}
+  const secs=p.sections;
+  const period=(p.start||p.end)?`모집 기간 ${esc(p.start||'')} ~ ${esc(p.end||'')}`:'';
+  el.innerHTML=`<form class="form" id="a-form" novalidate>
+   <div class="panel stack" style="gap:8px">
+     <span class="pill acc" style="justify-self:start">${p.module==='loan'?'공통 항목 + 모듈 2 여신':'공통 항목 + 모듈 1 여신 외'}</span>
+     <h2 style="font-size:22px">${esc(p.name)} 신청서</h2>
+     ${period?`<p class="muted" style="margin:0">${period}</p>`:''}
+     ${p.notice?`<p style="margin:0;white-space:pre-line">${esc(p.notice)}</p>`:''}
+     <p class="help" style="margin:0"><span class="req">*</span> 표시는 필수 항목입니다. 파일은 PDF·사진·한글·워드·엑셀, 한 개 10MB 이하(합계 25MB)로 올려 주세요.</p>
+     ${p.demo?'<div class="notice warn" style="font-size:13px">시연용 접수입니다. 실제 개인정보·서류는 넣지 말고 예시 값으로만 시험해 주세요.</div><div class="row"><button type="button" class="btn sm" id="a-sample">예시 값 채우기(시연용)</button></div>':''}
+     <p class="help" style="margin:0">입력한 정보와 서류는 사업 심사 목적으로만 쓰이며 담당자만 볼 수 있습니다.</p>
+   </div>
+   ${p.hasCode?`<div class="panel fsec"><div class="fitem${S.applyErr.__code?' invalid':''}" id="fi-__code"><h4>신청 코드<span class="req">*</span></h4><span class="help">공고문에 적힌 신청 코드를 넣어 주세요.</span>
+     <div class="field"><input type="text" id="a-code" value="${esc(S.code||'')}" autocomplete="off" aria-label="신청 코드"></div>${S.applyErr.__code?`<span class="err">${esc(S.applyErr.__code)}</span>`:''}</div></div>`:''}
+   <div class="hp" aria-hidden="true"><label>웹사이트<input type="text" id="a-hp" tabindex="-1" autocomplete="off"></label></div>
+   ${secs.map(s=>`<div class="panel fsec"><div class="sechead"><span class="code">${esc(s.sec)}</span><h3>${esc(s.title)}</h3></div>${s.items.map(fItem).join('')}</div>`).join('')}
+   ${Object.keys(S.applyErr).length?`<div class="notice bad">입력하지 않은 필수 항목이 ${Object.keys(S.applyErr).length}개 있습니다. 빨간 줄이 표시된 항목을 확인해 주세요.</div>`:''}
+   <div class="row" style="justify-content:flex-end"><span class="help" id="a-state"></span><button type="submit" class="btn primary" id="a-submit">신청서 제출</button></div>
+  </form>`;
+  bindApply(secs);
+}
+const val=(ik,fk)=>((S.form[ik]||{})[fk]);
+function fItem(it){
+  const err=S.applyErr[it.key];
+  return `<div class="fitem${err?' invalid':''}" data-item="${it.key}" id="fi-${it.key}">
+    <h4>${esc(it.label)}${it.req?'<span class="req">*</span>':''}</h4>${it.help?`<span class="help">${esc(it.help)}</span>`:''}
+    <div class="${it.fields.length>1&&it.fields.every(f=>['text','number','select','date','month','tel','email','url'].includes(f.t))?'subgrid':'stack'}">${it.fields.map(f=>fField(it,f)).join('')}</div>
+    ${err?`<span class="err">${esc(err)}</span>`:''}</div>`;
+}
+function fField(it,f){
+  const id=`f-${it.key}-${f.k}`,v=val(it.key,f.k),star=(it.req&&!f.opt&&!it.anyOf)?'<span class="req">*</span>':'';
+  const lab=`<label for="${id}">${esc(f.label)}${star}</label>`;
+  const nm=`data-ik="${it.key}" data-fk="${f.k}"`;
+  switch(f.t){
+    case 'text':case 'email':case 'tel':case 'url':case 'date':case 'month':
+      return `<div class="field">${lab}<input type="${f.t}" id="${id}" ${nm} value="${esc(v||'')}"${f.ph?` placeholder="${esc(f.ph)}"`:''}></div>`;
+    case 'number':
+      return `<div class="field">${lab}<div class="unit"><input type="text" inputmode="numeric" id="${id}" ${nm} data-num="1" value="${esc(won(v))}">${f.unit?`<span>${esc(f.unit)}</span>`:''}</div></div>`;
+    case 'textarea':
+      return `<div class="field">${lab}<textarea id="${id}" ${nm} maxlength="${f.max||2000}" rows="4">${esc(v||'')}</textarea><span class="help" data-count="${id}">${(v||'').length} / ${f.max||2000}자</span></div>`;
+    case 'select':
+      return `<div class="field">${lab}<select id="${id}" ${nm}><option value="">선택하세요</option>${f.opts.map(o=>`<option${o===v?' selected':''}>${esc(o)}</option>`).join('')}</select></div>`;
+    case 'radio':
+      return `<div class="field"><span class="flabel" id="${id}">${esc(f.label)}${star}</span><div class="choices" role="radiogroup" aria-labelledby="${id}">${f.opts.map((o,i)=>`<label><input type="radio" name="${id}" id="${id}-${i}" ${nm} value="${esc(o)}"${o===v?' checked':''}>${esc(o)}</label>`).join('')}</div></div>`;
+    case 'checks':
+      return `<div class="field"><span class="flabel" id="${id}">${esc(f.label)}${star}</span><div class="choices" role="group" aria-labelledby="${id}">${f.opts.map((o,i)=>`<label><input type="checkbox" id="${id}-${i}" ${nm} data-multi="1" value="${esc(o)}"${(v||[]).includes(o)?' checked':''}>${esc(o)}</label>`).join('')}</div></div>`;
+    case 'consent':
+      return `<div class="field"><span class="flabel" id="${id}">${esc(f.label)}${star}</span><div class="stack" style="gap:6px">${f.opts.map((o,i)=>`<label class="switch" style="font-size:14px"><input type="checkbox" id="${id}-${i}" ${nm} data-multi="1" value="${esc(o)}"${(v||[]).includes(o)?' checked':''}>${esc(o)}</label>`).join('')}</div></div>`;
+    case 'file':{
+      const fs=S.files[it.key+'.'+f.k]||[];
+      return `<div class="field">${lab}<input type="file" id="${id}" ${nm} data-file="1" multiple accept="${ACCEPT}">
+        ${fs.length?`<div class="filelist">${fs.map(x=>`<span class="pill">${esc(x.name)}</span>`).join('')}</div>`:''}</div>`;}
+    case 'scale4':{
+      const sv=v||{};
+      return `<div class="field"><span class="flabel">${esc(f.label)}${star}</span><div class="tbl"><table class="scale"><thead><tr><th>문항</th>${[1,2,3,4].map(n=>`<th class="num">${n}</th>`).join('')}</tr></thead><tbody>
+       ${f.stmts.map((s,si)=>`<tr><td>${esc(s)}</td>${[1,2,3,4].map(n=>`<td class="num"><input type="radio" name="${id}-${si}" ${nm} data-scale="${si}" value="${n}" aria-label="${esc(s)} ${n}점"${sv[si]==n?' checked':''} style="accent-color:var(--accent);width:16px;height:16px"></td>`).join('')}</tr>`).join('')}
+      </tbody></table></div></div>`;}
+    case 'rows':{
+      const rv=v||[];
+      return `<div class="field"><span class="flabel">${esc(f.label)}${star}</span><div class="tbl"><table><thead><tr><th>#</th>${f.cols.map(c=>`<th>${esc(c.label)}</th>`).join('')}</tr></thead><tbody>
+       ${Array.from({length:f.n},(_,r)=>`<tr><td class="num">${r+1}</td>${f.cols.map(c=>`<td><input type="text" ${c.t==='number'?'inputmode="numeric" data-num="1"':''} ${nm} data-row="${r}" data-col="${c.k}" aria-label="${r+1}행 ${esc(c.label)}" value="${esc(c.t==='number'?won((rv[r]||{})[c.k]):((rv[r]||{})[c.k]||''))}"></td>`).join('')}</tr>`).join('')}
+      </tbody></table></div></div>`;}
+  }
+  return '';
+}
+function bindApply(secs){
+  const el=$('#view-apply');const f=$('#a-form');
+  const setF=(ik,fk,v)=>{S.form[ik]=S.form[ik]||{};S.form[ik][fk]=v;if(S.applyErr[ik]){delete S.applyErr[ik];const n=$('#fi-'+ik);if(n){n.classList.remove('invalid');n.querySelector('.err')?.remove()}}};
+  f.addEventListener('input',e=>{const t=e.target;const ik=t.dataset.ik,fk=t.dataset.fk;if(!ik||t.dataset.file)return;
+    if(t.dataset.row!=null){const arr=(val(ik,fk)||[]).slice();const r=+t.dataset.row;arr[r]={...(arr[r]||{}),[t.dataset.col]:t.dataset.num?t.value.replace(/[^\d]/g,''):t.value};setF(ik,fk,arr);return}
+    if(t.dataset.scale!=null){const o={...(val(ik,fk)||{})};o[t.dataset.scale]=+t.value;setF(ik,fk,o);return}
+    if(t.dataset.multi){const box=t.closest('.choices,.stack');const arr=[...box.querySelectorAll('input:checked')].map(x=>x.value);setF(ik,fk,arr);return}
+    if(t.dataset.num){const raw=t.value.replace(/[^\d]/g,'');setF(ik,fk,raw===''?'':+raw);return}
+    setF(ik,fk,t.value);
+    const c=el.querySelector(`[data-count="${t.id}"]`);if(c)c.textContent=`${t.value.length} / ${t.maxLength}자`;
+  });
+  f.addEventListener('change',e=>{const t=e.target;
+    if(t.dataset.num&&t.value){t.value=won(t.value.replace(/[^\d]/g,''))}
+    if(t.dataset.file){const key=t.dataset.ik+'.'+t.dataset.fk;const ok=[],bad=[];
+      [...t.files].forEach(x=>{(OK_EXT.includes(x.name.split('.').pop().toLowerCase())&&x.size<=MAX_FILE?ok:bad).push(x)});
+      S.files[key]=ok;if(bad.length)toast(`올릴 수 없는 파일 ${bad.length}개를 뺐습니다. PDF·사진·한글·워드·엑셀(10MB 이하)만 가능합니다.`);
+      if(ok.length){setF(t.dataset.ik,t.dataset.fk,ok.map(x=>({name:x.name})))}else setF(t.dataset.ik,t.dataset.fk,undefined);
+      const lst=t.parentElement.querySelector('.filelist');const html=ok.length?`<div class="filelist">${ok.map(x=>`<span class="pill">${esc(x.name)}</span>`).join('')}</div>`:'';
+      if(lst)lst.outerHTML=html||'<span></span>';else if(html)t.insertAdjacentHTML('afterend',html);}
+  });
+  const cd=$('#a-code');if(cd)cd.oninput=e=>{S.code=e.target.value;if(S.applyErr.__code){delete S.applyErr.__code;const n=$('#fi-__code');n.classList.remove('invalid');n.querySelector('.err')?.remove()}};
+  const sb=$('#a-sample');if(sb)sb.onclick=()=>{fillSample(secs);renderApply();toast('예시 값을 채웠습니다. 파일은 직접 골라 주세요.')};
+  f.addEventListener('submit',e=>{e.preventDefault();submitApply(secs)});
+}
+function validate(secs){
+  const errs={};
+  secs.forEach(s=>s.items.forEach(it=>{
+    const vals=it.fields.map(f=>[f,val(it.key,f.k)]);
+    if(it.anyOf){if(it.req&&!vals.some(([f,v])=>filled(f,v)))errs[it.key]='사진 또는 온라인 주소 중 하나 이상 입력해 주세요.';return}
+    if(it.req){const miss=vals.filter(([f,v])=>!f.opt&&!filled(f,v));if(miss.length){errs[it.key]=miss.map(([f])=>f.label).join(', ')+'을(를) 입력해 주세요.';return}}
+    vals.forEach(([f,v])=>{if(f.pattern&&v&&!new RegExp(f.pattern).test(v))errs[it.key]=`${f.label} 형식을 확인해 주세요(예: ${f.ph}).`;
+      if(f.t==='email'&&v&&!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v))errs[it.key]='이메일 형식을 확인해 주세요.'});
+  }));
+  if(S.program&&S.program.hasCode&&!String(S.code||'').trim())errs.__code='신청 코드를 넣어 주세요.';
+  return errs;
+}
+function fillSample(secs){
+  const SAMPLE={biz:{name:'(예시) 다온반찬',brn:'123-45-67890',ceo:'김예시',btype:'개인 일반과세자',open:'2021-03-15',ind:'반찬 제조·판매'},
+    contact:{phone:'010-1234-5678',email:'sample@example.com'},addr:{sido:'서울특별시',sigungu:'마포구',detail:'예시로 12, 1층'},goods:{v:'수제 반찬, 도시락'},
+    place:{form:'점포',lease:'월세'},birth:{v:'850315-2'},career:{v:'호텔 조리팀 8년 근무 후 동네 반찬가게를 열었습니다. 1인 가구 손님이 늘어 소포장 반찬을 온라인으로 팔고 싶어 신청했습니다.'},mode:{v:'온라인 병행'},
+    sales:{avgLast:6200000,m6:5800000,m3:6100000,now:6600000,avg3:6400000},annual:{amt:74400000},cost:{material:2400000,ad:150000,fee:180000,ship:220000,rent:1300000,labor:900000,loanpay:350000,other:0},
+    reason:{pick:['판로 확대','온라인 판매 시작'],text:'매장 손님은 일정한데 1인 가구 주문 문의가 늘어 온라인 판매를 제대로 하고 싶습니다.'},
+    product:{v:'국내산 재료로 매일 아침 만드는 반찬. 1인분 소포장과 주 3회 정기배송이 특징입니다.'},company:{v:'2021년 개업, 대표 포함 2명 운영. 매장 판매 70%, 스마트스토어 30%.'},
+    source:{v:'지자체·공공기관 안내'},pref:{v:['해당 없음']},dup:{inner:'아니오',outer:'아니오'},consent:{agree:((secs.flatMap(s=>s.items).find(i=>i.key==='consent')||{fields:[{opts:[]}]}).fields[0].opts||[]).slice()},proof:{url:'https://smartstore.example.com/daon'},
+    m_prod:{rows:[{name:'반찬 3종 세트',price:15000},{name:'1인 도시락',price:8500}]},m_chan:{main:'스마트스토어',url:'https://smartstore.example.com/daon',others:['인스타그램'],delivery:'입점함'},
+    m_start:{v:'2023-05'},m_staff:{who:'대표 본인',hours:10},m_edu:{can:'가능',slots:['평일 오후','주말']},m_survey:{scale:{0:3,1:2,2:3,3:3,4:2},routine:['주문 확인(매일)','손님 문의 답변(매일)']},
+    m_tools:{v:['스마트스토어','배달앱','인스타그램','카카오톡 채널']},m_promo:{v:['SNS 게시','할인 행사']},
+    l_income:{v:28000000},l_debt:{kind:'없음'},l_fund:{amount:20000000,use:['시설·장비','상품·재료 매입'],plan:[{item:'냉장 쇼케이스',amt:8000000},{item:'포장 설비',amt:5000000},{item:'재료 매입',amt:7000000}],invest:[{item:'매장 인테리어',amt:15000000,src:'본인 저축'}]},
+    l_repay:{how:['사업 수익'],plan:[{way:'사업 수익',amt:450000}]},l_asset:{house:'전세',houseAmt:150000000,fin:12000000,estate:0,car:8000000}};
+  const keys=secs.flatMap(s=>s.items.map(i=>i.key));
+  keys.forEach(k=>{if(SAMPLE[k])S.form[k]=clone(SAMPLE[k])});S.applyErr={};S.isSample=true;
+}
+
+/* ---------- 접수함 ---------- */
+window.addEventListener('beforeunload',e=>{if(!S.submitted&&Object.keys(S.form).length){e.preventDefault();e.returnValue=''}});
+boot();
+</script>
+</body>
+</html>
