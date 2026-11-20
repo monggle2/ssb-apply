@@ -322,7 +322,7 @@ const S={ready:false,canEdit:true,programs:{},apps:{},appsPid:null,appsLoading:f
 const $=s=>document.querySelector(s);
 /* 서버 함수 호출 */
 function run(fn,...args){return new Promise((res,rej)=>{google.script.run.withSuccessHandler(res).withFailureHandler(e=>rej(e instanceof Error?e:new Error(String(e&&e.message||e))))[fn](...args)})}
-function pubLink(id){const u=S.info.formUrl||'';return u?(u.replace(/[?#].*$/,'').replace(/\/?$/,'/'))+'?p='+encodeURIComponent(id):''}
+function pubLink(id){const u=S.info.formUrl||'';return u?(u.replace(/[?#].*$/,'').replace(/\x2F?$/,'/'))+'?p='+encodeURIComponent(id):''}
 function setPrograms(list){S.programs={};(list||[]).forEach(p=>S.programs[p.id]=p)}
 async function boot(){
   bindTop();render();
@@ -499,7 +499,7 @@ function bindDesign(ro){
   const pv=el.querySelector('#d-preview');if(pv)pv.onclick=()=>window.open(pubLink(d.id),'_blank','noopener');
   const cp=el.querySelector('#d-copy');if(cp)cp.onclick=()=>{const i=$('#d-link');i.select();try{navigator.clipboard.writeText(i.value).then(()=>toast('링크를 복사했습니다.'),()=>{document.execCommand('copy');toast('링크를 복사했습니다.')})}catch(e){document.execCommand('copy');toast('링크를 복사했습니다.')}};
   el.querySelector('#d-formurl-save').onclick=async()=>{const v=$('#d-formurl').value.trim();
-    if(v&&!/^https:\/\//.test(v)){toast('https:// 로 시작하는 주소를 넣어 주세요.');return}
+    if(v&&!/^https:\x2F\x2F/.test(v)){toast('https:// 로 시작하는 주소를 넣어 주세요.');return}
     try{await run('adminSetFormUrl',v);S.info.formUrl=v;toast('신청 페이지 주소를 저장했습니다.');renderDesign()}catch(e){toast(e.message)}};
   if(el._bound)return;el._bound=true;
   const io=k=>{const d=S.draft;d.items=d.items||{};return d.items[k]=d.items[k]||{}};
@@ -588,7 +588,7 @@ function fmtVal(f,v){
     case 'scale4':return f.stmts.map((s,i)=>`${esc(s)}: <b>${esc(v[i]??'—')}</b>`).join('<br>');
     case 'rows':{const rs=(v||[]).filter(r=>r&&Object.values(r).some(x=>String(x).trim()));if(!rs.length)return '<span class="muted">—</span>';
       return `<div class="tbl"><table><thead><tr>${f.cols.map(c=>`<th>${esc(c.label)}</th>`).join('')}</tr></thead><tbody>${rs.map(r=>`<tr>${f.cols.map(c=>`<td${c.t==='number'?' class="num"':''}>${esc(c.t==='number'?won(r[c.k]):(r[c.k]||''))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`}
-    case 'url':return `<a href="${esc(/^https?:\/\//.test(v)?v:'https://'+v)}" target="_blank" rel="noopener">${esc(v)}</a>`;
+    case 'url':return `<a href="${esc(/^https?:\x2F\x2F/.test(v)?v:'https://'+v)}" target="_blank" rel="noopener">${esc(v)}</a>`;
     case 'textarea':return `<span style="white-space:pre-line">${esc(v)}</span>`;
   }
   return esc(v);
