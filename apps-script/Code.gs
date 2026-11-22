@@ -11,7 +11,8 @@ const PH = ['사업ID', '사업명', '모듈', '모집시작', '모집마감', '
 const SH_STAFF = ['이메일', '이름', '메모'];
 // 신청목록: 앞 15칸은 위치 고정, 그 뒤 칸은 이름으로 찾음
 const AH = ['접수번호', '사업ID', '사업명', '제출일시', '상호', '대표자', '연락처', '이메일', '상태', '사유구분', '판정메모', '판정일시', '면접총점', '서류폴더', '원본JSON',
-  '사업자번호', '처리상태', '처리시도', '처리일시', '처리메모', '자동판정', '탈락후보', '확인필요', '자동사유', '판정자', '제출ID', '동의버전', '동의일시'];
+  '사업자번호', '처리상태', '처리시도', '처리일시', '처리메모', '자동판정', '탈락후보', '확인필요', '자동사유', '판정자', '제출ID', '동의버전', '동의일시',
+  '판독필요', '보완토큰', '보완요청내용', '보완요청일시', '보완제출일시', '면접위원수', '최종결과', '최종결과일시', '최종결과자'];
 const OH = ['접수번호', '항목', '칸', '파일명', '파일ID', '글자수', '판독글자', '판독일시', '판독자'];
 const NH = ['접수번호', '사업자번호', '상태', '상태코드', '과세유형', '폐업일', '조회일시', '조회자'];
 const IH = ['접수번호', '면접관', '면접일', '총점', '영역점수JSON', '점수JSON', '메모JSON', '저장일시', '저장자'];
@@ -155,7 +156,7 @@ function readPrograms_() {
       id: String(r[0]), name: str_(r[1]), module: str_(r[2]) === 'loan' ? 'loan' : 'online',
       start: str_(r[3]), end: str_(r[4]), endTime: cfg.endTime || '', code: str_(r[5]), open: r[6] === true || r[6] === 'Y' || r[6] === 'TRUE',
       demo: r[7] === true || r[7] === 'Y' || r[7] === 'TRUE', notice: str_(r[8]),
-      items: cfg.items || {}, qs: cfg.qs || {}, rules: cfg.rules || {}, custom: cfg.custom || [],
+      items: cfg.items || {}, qs: cfg.qs || {}, rules: cfg.rules || {}, custom: cfg.custom || [], sel: cfg.sel || { n: '', m: '' },
       updatedAt: r[10] instanceof Date ? r[10].getTime() : (Number(r[10]) || 0), updatedBy: str_(r[11])
     };
   });
@@ -203,6 +204,11 @@ function doGet(e) {
     const sections = withConsent_(effItems(p)).map(s => ({ sec: s.sec, title: s.title, items: s.items.filter(i => i.on).map(i => ({ key: i.key, label: i.label, req: i.req, help: i.help, anyOf: !!i.anyOf, fields: i.fields })) })).filter(s => s.items.length);
     return out_({ ok: true, program: { id: p.id, name: p.name, module: p.module, start: p.start, end: p.end, endTime: p.endTime, notice: p.notice, demo: p.demo, hasCode: !!p.code, sections } });
   }
+  if (q.api === 'fix') {
+    const f = fixFind_(q.no, q.t);
+    if (!f) return out_({ ok: false, error: '링크가 맞지 않거나 보완 제출 기간이 아닙니다. 담당자에게 문의해 주세요.' });
+    return out_({ ok: true, fix: { no: f.no, prog: f.p.name, biz: f.biz, note: f.note, slots: f.slots, done: f.done } });
+  }
   if (!isStaff_()) {
     return HtmlService.createHtmlOutput('<div style="font-family:sans-serif;padding:24px;line-height:1.7"><h3>담당자 화면입니다</h3>시트의 <b>담당자</b> 탭에 등록된 구글 계정으로 열어 주세요.<br>현재 계정: ' + escHtml_(me_() || '확인할 수 없음 (담당자용 주소로 열었는지 확인해 주세요)') + '</div>').setTitle('신청 시스템');
   }
@@ -216,6 +222,7 @@ function doPost(e) {
   try {
     const b = JSON.parse((e && e.postData && e.postData.contents) || '{}');
     if (b.website) return out_({ ok: true, no: '-' }); // 자동 입력 방지용 숨은 칸
+    if (b.fix) return out_(fixSubmit_(b));
     const p = readPrograms_().find(x => x.id === b.pid);
     if (!p || !p.open) return out_({ ok: false, error: '접수 중인 사업이 아닙니다.' });
     if (!inPeriod_(p)) return out_({ ok: false, error: '모집 기간이 아닙니다.' });
@@ -300,7 +307,7 @@ function doPost(e) {
       const rowObj = {
         '접수번호': no, '사업ID': p.id, '사업명': p.name, '제출일시': now, '상호': cell_(biz.name), '대표자': cell_(biz.ceo), '연락처': cell_(ct.phone), '이메일': cell_(ct.email),
         '상태': '접수', '서류폴더': af.getUrl(), '원본JSON': json, '사업자번호': String(biz.brn || '').replace(/[^0-9]/g, '') ? "'" + String(biz.brn || '').replace(/[^0-9]/g, '') : '',
-        '처리상태': '대기', '처리시도': 0, '제출ID': sid, '동의버전': agreed ? cver : '', '동의일시': agreed ? now : ''
+        '처리상태': '대기', '처리시도': 0, '판독필요': 'Y', '제출ID': sid, '동의버전': agreed ? cver : '', '동의일시': agreed ? now : ''
       };
       const row = new Array(m._n).fill('');
       Object.keys(rowObj).forEach(k => { if (m[k]) row[m[k] - 1] = rowObj[k]; });
@@ -373,7 +380,7 @@ function adminSaveProgram(p) {
   if (!p || !p.id || !String(p.name || '').trim()) throw new Error('사업 이름이 필요합니다.');
   const sh = sheet_(SH.P);
   const row = [p.id, p.name, p.module === 'loan' ? 'loan' : 'online', p.start || '', p.end || '', p.code || '', p.open ? 'Y' : 'N', p.demo ? 'Y' : 'N', p.notice || '',
-    JSON.stringify({ items: p.items || {}, qs: p.qs || {}, rules: p.rules || {}, endTime: p.endTime || '', custom: cleanCustom_(p.custom) }), new Date(), me];
+    JSON.stringify({ items: p.items || {}, qs: p.qs || {}, rules: p.rules || {}, endTime: p.endTime || '', custom: cleanCustom_(p.custom), sel: p.sel || { n: '', m: '' } }), new Date(), me];
   const ids = colVals_(sh, 1);
   const i = ids.indexOf(p.id);
   sh.getRange(1, 4, sh.getMaxRows(), 2).setNumberFormat('@'); // 날짜를 글자로 보관
@@ -427,13 +434,7 @@ function adminListApps(pid) {
       (ocr[no] = ocr[no] || []).push({ ik: str_(r[1]), fk: str_(r[2]), name: str_(r[3]), len: Number(r[5]) || 0, err: Number(r[5]) < 0 ? '읽기 오류' : '', at: t[i][0] instanceof Date ? t[i][0].getTime() : 0 });
     });
   }
-  const iv = {};
-  rows_(SH.I).forEach(r => {
-    const o = { interviewer: str_(r[1]), date: str_(r[2]), scores: {}, notes: {} };
-    try { o.scores = JSON.parse(r[5] || '{}'); } catch (e) {}
-    try { o.notes = JSON.parse(r[6] || '{}'); } catch (e) {}
-    iv[String(r[0])] = o;
-  });
+  const ivs = ivMap_();
   const nts = {};
   rows_(SH.N).forEach(r => { const t = v => str_(v).replace(/^'/, '');
     nts[String(r[0])] = { bno: t(r[1]), stt: str_(r[2]), cd: t(r[3]), tax: str_(r[4]), end: t(r[5]), at: r[6] instanceof Date ? r[6].getTime() : 0 }; });
@@ -447,7 +448,9 @@ function adminListApps(pid) {
       proc: { st: str_(g(r, '처리상태')), tries: Number(g(r, '처리시도')) || 0, at: g(r, '처리일시') instanceof Date ? g(r, '처리일시').getTime() : 0, memo: str_(g(r, '처리메모')) },
       auto: str_(g(r, '자동판정')) ? { verdict: str_(g(r, '자동판정')), f: Number(g(r, '탈락후보')) || 0, w: Number(g(r, '확인필요')) || 0, reason: str_(g(r, '자동사유')) } : null,
       consent: { ver: str_(g(r, '동의버전')), at: g(r, '동의일시') instanceof Date ? g(r, '동의일시').getTime() : 0 },
-      interview: iv[no] || { scores: {}, notes: {}, interviewer: '', date: '' }
+      ivs: ivs[no] || [],
+      fix: { link: g(r, '보완토큰') ? fixLink_(no, str_(g(r, '보완토큰'))) : '', note: str_(g(r, '보완요청내용')), reqAt: g(r, '보완요청일시') instanceof Date ? g(r, '보완요청일시').getTime() : 0, subAt: g(r, '보완제출일시') instanceof Date ? g(r, '보완제출일시').getTime() : 0 },
+      result: { v: str_(g(r, '최종결과')), by: str_(g(r, '최종결과자')), at: g(r, '최종결과일시') instanceof Date ? g(r, '최종결과일시').getTime() : 0 }
     };
   });
 }
@@ -474,7 +477,7 @@ function findRow_(name, no) {
   return i < 0 ? -1 : i + 2;
 }
 
-function adminSaveElig(no, status, kind, note) {
+function adminSaveElig(no, status, kind, note, fixNote) {
   const me = requireStaff_();
   const m = cols_(SH.A, AH);
   const r = findRow_(SH.A, no);
@@ -483,21 +486,169 @@ function adminSaveElig(no, status, kind, note) {
   const now = new Date();
   m._sh.getRange(r, 9, 1, 4).setValues([[status || '접수', kind || '', note || '', now]]);
   setCells_(m, r, { '판정자': me });
-  log_(me, no, '적/부 판정', old.filter(Boolean).join(' / '), [status, kind, note].filter(Boolean).join(' / '));
-  return { by: me, at: now.getTime() };
+  let link = '';
+  if (status === '보완 요청') {
+    let tok = str_(m._sh.getRange(r, m['보완토큰']).getValue());
+    if (!tok) tok = Utilities.getUuid().replace(/-/g, '');
+    setCells_(m, r, { '보완토큰': tok, '보완요청내용': cell_(String(fixNote || '').slice(0, 1000)), '보완요청일시': now });
+    link = fixLink_(no, tok);
+  }
+  log_(me, no, '적/부 판정', old.filter(Boolean).join(' / '), [status, kind, note].filter(Boolean).join(' / ') + (status === '보완 요청' && fixNote ? ' / 요청: ' + fixNote : ''));
+  return { by: me, at: now.getTime(), link, fixNote: status === '보완 요청' ? String(fixNote || '') : undefined };
 }
 
-function adminSaveInterview(no, iv, total, areas) {
+/* 보완 제출: 링크(접수번호+토큰) 확인 */
+function fixFind_(no, tok) {
+  no = String(no || ''); tok = String(tok || '');
+  if (!no || tok.length < 20) return null;
+  const m = cols_(SH.A, AH);
+  const r = findRow_(SH.A, no);
+  if (r < 0) return null;
+  const row = m._sh.getRange(r, 1, 1, m._n).getValues()[0];
+  const g = k => row[m[k] - 1];
+  if (!str_(g('보완토큰')) || str_(g('보완토큰')) !== tok) return null;
+  if (!['보완 요청', '보완 제출'].includes(str_(row[8]))) return null;
+  const p = readPrograms_().find(x => x.id === String(row[1]));
+  if (!p) return null;
+  const answers = answersOf_(row[14]);
+  const slots = [];
+  withConsent_(effItems(p)).forEach(s => s.items.forEach(it => {
+    if (!it.on && !answers[it.key]) return;
+    it.fields.filter(f => f.t === 'file').forEach(f => slots.push({ ik: it.key, fk: f.k, label: it.label + (it.fields.length > 1 ? ' · ' + f.label : '') }));
+  }));
+  const done = (answers.__fix || []).map(x => ({ at: x.at, files: x.files || [], memo: x.memo || '' }));
+  return { no, r, m, row, p, answers, slots, done, biz: str_(row[4]), note: str_(g('보완요청내용')) };
+}
+function fixSubmit_(b) {
+  const f = fixFind_(b.fix, b.t);
+  if (!f) return { ok: false, error: '링크가 맞지 않거나 보완 제출 기간이 아닙니다. 담당자에게 문의해 주세요.' };
+  const files = Array.isArray(b.files) ? b.files : [];
+  const memo = String(b.memo || '').slice(0, 1000);
+  if (!files.length && !memo.trim()) return { ok: false, error: '올릴 서류나 메모를 넣어 주세요.' };
+  if (files.length > 20) return { ok: false, error: '파일은 한 번에 20개까지 올릴 수 있습니다.' };
+  const allow = {};
+  f.slots.forEach(x => allow[x.ik + '.' + x.fk] = true);
+  let total = 0;
+  for (const x of files) {
+    if (!allow[x.ik + '.' + x.fk]) return { ok: false, error: '서류 항목을 확인할 수 없습니다.' };
+    const ext = String(x.name || '').split('.').pop().toLowerCase();
+    if (!OK_EXT.includes(ext)) return { ok: false, error: '올릴 수 없는 파일 형식입니다: ' + x.name };
+    const size = Math.floor(String(x.data || '').length * 3 / 4);
+    if (size > MAX_FILE) return { ok: false, error: '파일 하나는 10MB 이하여야 합니다: ' + x.name };
+    total += size;
+  }
+  if (total > MAX_TOTAL) return { ok: false, error: '파일 합계는 25MB 이하여야 합니다.' };
+  // 같은 신청 폴더 안에 '보완_날짜' 폴더를 만들어 저장
+  const fid = (/folders\/([\w-]+)/.exec(str_(f.row[13])) || [])[1];
+  const base = fid ? DriveApp.getFolderById(fid) : rootFolder_();
+  const now = new Date();
+  const sub = base.createFolder('보완_' + Utilities.formatDate(now, TZ, 'yyMMdd-HHmm'));
+  const saved = files.map(x => {
+    const file = sub.createFile(Utilities.newBlob(Utilities.base64Decode(x.data), x.type || 'application/octet-stream', String(x.name).slice(0, 120)));
+    return { ik: x.ik, fk: x.fk, o: { id: file.getId(), name: file.getName(), type: x.type || '', size: file.getSize(), url: file.getUrl(), fix: true, at: now.getTime() } };
+  });
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const raw = String(f.m._sh.getRange(f.r, 15).getValue() || '{}');
+    const answers = answersOf_(raw);
+    saved.forEach(x => { answers[x.ik] = answers[x.ik] || {}; if (!Array.isArray(answers[x.ik][x.fk])) answers[x.ik][x.fk] = []; answers[x.ik][x.fk].push(x.o); });
+    answers.__fix = (answers.__fix || []).concat([{ at: now.getTime(), memo, files: saved.map(x => x.o.name) }]);
+    const json = JSON.stringify(answers);
+    if (raw.indexOf('FILE:') === 0) DriveApp.getFileById(raw.slice(5)).setContent(json);
+    else if (json.length > 45000) f.m._sh.getRange(f.r, 15).setValue('FILE:' + sub.createFile(Utilities.newBlob(json, 'application/json', '신청서_' + f.no + '_보완.json')).getId());
+    else f.m._sh.getRange(f.r, 15).setValue(json);
+    f.m._sh.getRange(f.r, 9).setValue('보완 제출');
+    setCells_(f.m, f.r, { '보완제출일시': now, '처리상태': '대기', '처리시도': 0, '판독필요': 'Y' });
+  } finally { lock.releaseLock(); }
+  log_('신청자', f.no, '보완 제출', '', saved.map(x => x.o.name).join(', ') + (memo ? ' / ' + memo : ''));
+  return { ok: true, no: f.no, count: saved.length };
+}
+
+/* 보완 제출 전용 링크 */
+function fixLink_(no, tok) {
+  const u = PropertiesService.getScriptProperties().getProperty('FORM_URL') || '';
+  if (!u || !tok) return '';
+  return u.replace(/[?#].*$/, '').replace(/\/?$/, '/') + '?fix=' + encodeURIComponent(no) + '&t=' + tok;
+}
+
+/* 위원별 면접 기록: {접수번호: [{interviewer, date, scores, notes, savedAt, by}]} */
+function ivMap_() {
+  const out = {};
+  rows_(SH.I).forEach(r => {
+    const o = { interviewer: str_(r[1]), date: str_(r[2]), scores: {}, notes: {}, savedAt: r[7] instanceof Date ? r[7].getTime() : 0, by: str_(r[8]) };
+    try { o.scores = JSON.parse(r[5] || '{}'); } catch (e) {}
+    try { o.notes = JSON.parse(r[6] || '{}'); } catch (e) {}
+    (out[String(r[0])] = out[String(r[0])] || []).push(o);
+  });
+  Object.keys(out).forEach(k => out[k].sort((a, b) => a.savedAt - b.savedAt));
+  return out;
+}
+function ivRow_(no, who) {
+  const sh = ensureSheet_(SH.I, IH);
+  if (sh.getLastRow() < 2) return -1;
+  const v = sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues();
+  for (let i = 0; i < v.length; i++) if (String(v[i][0]) === no && String(v[i][1]) === who) return i + 2;
+  return -1;
+}
+/* 위원 평균을 신청목록에 기록 */
+function ivSummary_(no, avg, n) {
+  const m = cols_(SH.A, AH);
+  const ra = findRow_(SH.A, no);
+  if (ra > 0) { m._sh.getRange(ra, 13).setValue(avg == null ? '' : avg); setCells_(m, ra, { '면접위원수': n || '' }); }
+}
+
+function adminSaveInterview(no, iv, total, areas, orig, avg, n) {
   const me = requireStaff_();
-  const sh = sheet_(SH.I);
-  const row = [no, iv.interviewer || '', iv.date || '', total == null ? '' : total, JSON.stringify(areas || {}), JSON.stringify(iv.scores || {}), JSON.stringify(iv.notes || {}), new Date(), me];
-  const r = findRow_(SH.I, no);
+  const who = String((iv && iv.interviewer) || '').trim().slice(0, 40);
+  if (!who) throw new Error('면접관(위원) 이름을 넣어 주세요.');
+  const sh = ensureSheet_(SH.I, IH);
+  const r = ivRow_(no, orig == null ? who : String(orig));
+  const dup = ivRow_(no, who);
+  if (dup > 0 && dup !== r) throw new Error('같은 이름의 위원 기록이 이미 있습니다: ' + who);
+  const row = [no, who, iv.date || '', total == null ? '' : total, JSON.stringify(areas || {}), JSON.stringify(iv.scores || {}), JSON.stringify(iv.notes || {}), new Date(), me];
   const before = r > 0 ? str_(sh.getRange(r, 4).getValue()) : '';
   if (r < 0) sh.appendRow(row); else sh.getRange(r, 1, 1, row.length).setValues([row]);
-  const ra = findRow_(SH.A, no);
-  if (ra > 0) sheet_(SH.A).getRange(ra, 13).setValue(total == null ? '' : total);
-  log_(me, no, '면접 기록', before, total == null ? '' : total);
-  return true;
+  ivSummary_(no, avg, n);
+  log_(me, no, '면접 기록(' + who + ')', before, total == null ? '' : total);
+  return { ivs: ivMap_()[no] || [] };
+}
+
+function adminDeleteInterview(no, who, avg, n) {
+  const me = requireStaff_();
+  const r = ivRow_(no, String(who));
+  if (r > 0) sheet_(SH.I).deleteRow(r);
+  ivSummary_(no, avg, n);
+  log_(me, no, '면접 기록 삭제', who, '');
+  return { ivs: ivMap_()[no] || [] };
+}
+
+/* 최종 결과(선정·예비·탈락) 저장 */
+function adminSaveResults(pid, list, sel) {
+  const me = requireStaff_();
+  const m = cols_(SH.A, AH);
+  const ids = colVals_(m._sh, 1);
+  const now = new Date();
+  (list || []).forEach(x => {
+    const i = ids.indexOf(String(x.no));
+    if (i < 0) return;
+    const v = ['선정', '예비', '탈락'].includes(x.v) ? x.v : '';
+    const before = str_(m._sh.getRange(i + 2, m['최종결과']).getValue());
+    if (before === v) return;
+    setCells_(m, i + 2, { '최종결과': v, '최종결과일시': now, '최종결과자': me });
+    log_(me, x.no, '최종 결과', before, v);
+  });
+  if (sel) {
+    const sp = sheet_(SH.P);
+    const pi = colVals_(sp, 1).indexOf(pid);
+    if (pi >= 0) {
+      let cfg = {};
+      try { cfg = JSON.parse(sp.getRange(pi + 2, 10).getValue() || '{}'); } catch (e) {}
+      cfg.sel = { n: String(sel.n || '').replace(/\D/g, ''), m: String(sel.m || '').replace(/\D/g, '') };
+      sp.getRange(pi + 2, 10).setValue(JSON.stringify(cfg));
+    }
+  }
+  return { at: now.getTime(), by: me };
 }
 
 /* ---------- 서류 글자 읽기 (구글 드라이브 OCR) ----------
@@ -639,7 +790,7 @@ function adminRequeue(nos) {
   const me = requireStaff_();
   const m = cols_(SH.A, AH);
   const ids = colVals_(m._sh, 1);
-  (nos || []).forEach(no => { const i = ids.indexOf(String(no)); if (i >= 0) setCells_(m, i + 2, { '처리상태': '대기', '처리시도': 0, '처리메모': '' }); });
+  (nos || []).forEach(no => { const i = ids.indexOf(String(no)); if (i >= 0) setCells_(m, i + 2, { '처리상태': '대기', '처리시도': 0, '처리메모': '', '판독필요': 'Y' }); });
   log_(me, (nos || []).join(','), '자동 처리 다시 요청', '', '');
   return true;
 }
@@ -743,14 +894,15 @@ function autoRun() {
       const no = String(ctx.vals[i][0]);
       const tries = (Number(ctx.vals[i][m['처리시도'] - 1]) || 0) + 1;
       try {
-        if (driveOn && !ctx.ocr[no]) {
+        const need = String(ctx.vals[i][m['판독필요'] - 1] || '') === 'Y';
+        if (driveOn && (need || !ctx.ocr[no])) {
           const o = ocrApp_(no, ctx.answersAt(i), '자동');
           ctx.ocr[no] = o;
         }
         const bn = ctx.brnAt(i);
         const v = verdictOf_(ctx, i);
         if (v) storeVerdict_(ctx, i, v);
-        setCells_(m, i + 2, { '처리상태': '완료', '처리시도': tries, '처리일시': new Date(), '처리메모': [driveOn ? '' : 'Drive API 꺼짐(서류 읽기 안 함)', notes[i] || ''].filter(Boolean).join(' / '), '사업자번호': bn ? "'" + bn : '' });
+        setCells_(m, i + 2, { '처리상태': '완료', '처리시도': tries, '처리일시': new Date(), '판독필요': driveOn ? '' : String(ctx.vals[i][m['판독필요'] - 1] || ''), '처리메모': [driveOn ? '' : 'Drive API 꺼짐(서류 읽기 안 함)', notes[i] || ''].filter(Boolean).join(' / '), '사업자번호': bn ? "'" + bn : '' });
       } catch (e) {
         setCells_(m, i + 2, { '처리상태': tries >= AUTO_MAX_TRY ? '오류' : '대기', '처리시도': tries, '처리일시': new Date(), '처리메모': cell_(String(e.message).slice(0, 300)) });
       }

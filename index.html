@@ -188,6 +188,7 @@ details summary{cursor:pointer;color:var(--accent);font-size:13.5px}
 .pcard:hover{border-color:var(--accent)}
 .term{display:grid;gap:6px}.tbody{max-height:170px;overflow:auto;white-space:pre-line;font-size:13px;line-height:1.6;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--sunk)}
 .ptab{width:100%;border-collapse:collapse;font-size:13px}.ptab th,.ptab td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}.ptab th{font-weight:600;color:var(--muted);font-size:12px}.ptab td:first-child{white-space:nowrap;color:var(--muted)}
+.rtab td{vertical-align:middle}.rtab select{min-width:90px}
 .allagree{font-weight:700;border-top:1px solid var(--line);padding-top:10px}
 
 </style>
@@ -238,7 +239,8 @@ async function api(q){const r=await fetch(API+'?'+new URLSearchParams(q));if(!r.
 function msg(html){$('#view-apply').innerHTML=`<div class="panel empty">${html}</div>`}
 async function boot(){
   if(!API){msg('신청 페이지 설정이 끝나지 않았습니다. <code>config.js</code>에 접수 서버 주소(API_URL)를 넣어 주세요.');return}
-  const pid=new URLSearchParams(location.search).get('p');
+  const qp=new URLSearchParams(location.search);if(qp.get('fix')){bootFix(qp.get('fix'),qp.get('t')||'');return}
+  const pid=qp.get('p');
   try{
     if(!pid){
       const r=await api({api:'programs'});
@@ -273,6 +275,60 @@ async function submitApply(secs){
     S.submitted=j.no;S.applyErr={};S.form={};S.files={};S.restored=false;clearDraft();S.sid=newSid();renderApply();window.scrollTo(0,0);
   }catch(e){toast('제출 결과를 받지 못했습니다. 인터넷 연결을 확인하고 [제출]을 다시 눌러 주세요. 같은 신청이 두 번 접수되지는 않습니다.');btn.disabled=false;st.textContent=''}
   submitting=false;
+}
+
+/* ---------- 보완 서류 제출 (전용 링크 ?fix=접수번호&t=토큰) ---------- */
+async function bootFix(no,t){
+  try{const r=await api({api:'fix',no,t});
+    if(!r.ok){msg(esc(r.error||'링크를 확인할 수 없습니다.'));return}
+    S.fix={...r.fix,t,files:{},memo:'',sent:false};document.title='보완 서류 제출';renderFix()}
+  catch(e){msg('접수 서버에 연결하지 못했습니다. 잠시 후 다시 열어 주세요.<br><span class="muted sm">'+esc(e.message)+'</span>')}
+}
+function renderFix(){
+  const F=S.fix;const el=$('#view-apply');
+  if(F.sent){el.innerHTML=`<div class="panel done"><h2 style="font-size:20px">보완 서류가 제출되었습니다</h2><div class="no">${esc(F.no)}</div>
+    <p class="muted" style="margin:0">담당자가 확인한 뒤 연락드립니다.</p><div class="row" style="justify-content:center"><button class="btn" id="fx-again" type="button">서류 더 올리기</button></div></div>`;
+    $('#fx-again').onclick=()=>{F.sent=false;F.files={};F.memo='';renderFix()};return}
+  el.innerHTML=`<form class="form" id="fx-form" novalidate>
+   <div class="panel stack" style="gap:8px">
+     <span class="pill warn" style="justify-self:start">보완 서류 제출</span>
+     <h2 style="font-size:22px">${esc(F.prog)}</h2>
+     <p class="muted" style="margin:0">접수번호 ${esc(F.no)}${F.biz?' · '+esc(F.biz):''}</p>
+     ${F.note?`<div class="notice"><b>요청 내용</b><div style="white-space:pre-line;margin-top:4px">${esc(F.note)}</div></div>`:''}
+     <p class="help" style="margin:0">해당하는 서류 칸에 파일을 올려 주세요. PDF·사진·한글·워드·엑셀, 한 개 10MB 이하(합계 25MB).</p>
+     ${F.done.length?`<details><summary class="sm">이전에 낸 보완 서류 ${F.done.length}회</summary><ul class="sm" style="padding-left:18px">${F.done.map(x=>`<li>${new Date(x.at).toLocaleString('ko-KR')} · ${esc((x.files||[]).join(', ')||'메모만')}</li>`).join('')}</ul></details>`:''}
+   </div>
+   <div class="panel fsec stack">
+     ${F.slots.map((s,i)=>`<div class="fitem"><h4>${esc(s.label)}</h4><div class="field"><input type="file" id="fx-${i}" data-slot="${i}" multiple accept="${ACCEPT}" aria-label="${esc(s.label)}">
+       ${(F.files[i]||[]).length?`<div class="filelist">${F.files[i].map(x=>`<span class="pill">${esc(x.name)}</span>`).join(' ')}</div>`:''}</div></div>`).join('')}
+     <div class="fitem"><h4>메모 <span class="muted sm">(선택)</span></h4><div class="field"><textarea id="fx-memo" rows="3" maxlength="1000" placeholder="담당자에게 전할 말이 있으면 적어 주세요">${esc(F.memo)}</textarea></div></div>
+   </div>
+   <div class="panel row"><button type="submit" class="btn primary" id="fx-submit">보완 서류 제출</button><span class="help" id="fx-state"></span></div>
+  </form>`;
+  el.querySelectorAll('[data-slot]').forEach(inp=>inp.onchange=()=>{const i=+inp.dataset.slot;const ok=[],bad=[];
+    [...inp.files].forEach(x=>{(OK_EXT.includes(x.name.split('.').pop().toLowerCase())&&x.size<=MAX_FILE?ok:bad).push(x)});
+    F.files[i]=ok;if(bad.length)toast(`올릴 수 없는 파일 ${bad.length}개를 뺐습니다. PDF·사진·한글·워드·엑셀(10MB 이하)만 가능합니다.`);renderFix()});
+  $('#fx-memo').oninput=e=>{F.memo=e.target.value};
+  $('#fx-form').onsubmit=e=>{e.preventDefault();submitFix()};
+}
+let fixSending=false;
+async function submitFix(){
+  const F=S.fix;if(fixSending)return;
+  const keys=Object.keys(F.files).filter(k=>(F.files[k]||[]).length);
+  if(!keys.length&&!F.memo.trim()){toast('올릴 서류나 메모를 넣어 주세요.');return}
+  const total=keys.reduce((a,k)=>a+F.files[k].reduce((x,f)=>x+f.size,0),0);
+  if(total>MAX_TOTAL){toast('파일 합계가 25MB를 넘습니다. 파일 크기를 줄여 주세요.');return}
+  fixSending=true;const btn=$('#fx-submit'),st=$('#fx-state');btn.disabled=true;
+  try{
+    const files=[];let n=0;const cnt=keys.reduce((a,k)=>a+F.files[k].length,0);
+    for(const k of keys){const s=F.slots[+k];for(const f of F.files[k]){n++;st.textContent=`파일 준비 중 ${n}/${cnt}`;files.push({ik:s.ik,fk:s.fk,name:f.name,type:f.type,data:await readB64(f)})}}
+    st.textContent='제출하는 중입니다. 창을 닫지 마세요.';
+    const r=await fetch(API,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({fix:F.no,t:F.t,memo:F.memo,files})});
+    const j=await r.json();
+    if(!j.ok){toast(j.error||'제출하지 못했습니다.');btn.disabled=false;st.textContent='';fixSending=false;return}
+    F.done=F.done.concat([{at:Date.now(),files:files.map(x=>x.name),memo:F.memo}]);F.sent=true;renderFix();window.scrollTo(0,0);
+  }catch(e){toast('제출 결과를 받지 못했습니다. 인터넷 연결을 확인하고 다시 시도해 주세요.');btn.disabled=false;st.textContent=''}
+  fixSending=false;
 }
 
 function renderApply(){
