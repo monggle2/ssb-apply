@@ -71,7 +71,11 @@ const QBANK={"online":[{"id":"Q01","area":"사업지원 필요성","crit":"사�
 function catalogFor(mod){return CATALOG.filter(s=>s.scope==='common'||s.scope===mod)}
 function effItems(p){
   const ov=(p&&p.items)||{};
-  return catalogFor(p?p.module:'online').map(s=>({...s,items:s.items.map(it=>{
+  const cu=((p&&p.custom)||[]).filter(c=>c&&c.key&&Array.isArray(c.fields)&&c.fields.length).map(c=>({...c,custom:true,req:!!c.req}));
+  const secs=catalogFor(p?p.module:'online').map(s=>({...s,items:s.items.concat(cu.filter(c=>c.sec===s.sec))}));
+  const extra=cu.filter(c=>!secs.some(s=>s.sec===c.sec));
+  if(extra.length)secs.push({sec:'X',title:'추가 항목',scope:'common',items:extra});
+  return secs.map(s=>({...s,items:s.items.map(it=>{
     const o=ov[it.key]||{};
     return {...it,on:o.on!==false,req:o.req??it.req,label:o.label||it.label,help:o.help??it.help??'',
       fields:it.fields.map(f=>{const fo=(o.fields||{})[f.k]||{};return {...f,label:fo.label||f.label,opts:fo.opts||f.opts}})};
@@ -176,3 +180,111 @@ function parseDoc(ik, text) {
   return o;
 }
 
+/* ---------- 자동 적/부 점검 (참고용, 서버·담당자 화면 공용) ---------- */
+function wonC_(n){return Number(n||0).toLocaleString('ko-KR')}
+const EXCL_DEFAULT=`도박|사행|불건전|오락기구|경품용=도박·사행성
+담배=담배 중개·도매
+골동품|귀금속중개|예술품중개=예술품·골동품·귀금속 중개
+주류도매=주류 도매
+모피=모피제품 도매(인조모피 제외)
+약국|한약국=약국·한약국
+성인용품=성인용품
+다단계|방문판매=다단계 방문판매
+통관|관세사=통관업
+유흥주점|무도유흥|단란주점=유흥주점
+경마|경륜|경정=경마·경륜·경정
+아이템중개|아바타중개=게임 아이템 중개
+금융|보험|대부|여신|투자자문=금융·보험업
+부동산=부동산업(관리업·6개월 이상 중개업은 가능)
+법무|변호사|법률|회계|세무사|세무대리|공인회계=법무·회계·세무
+수의|동물병원=수의업
+감정평가=감정평가업
+탐정|흥신소|신용조사|추심=탐정·신용조사·추심
+병원|의원|치과|한의원|보건업|요양병원=보건업(유사의료업 가능)
+경주장|동물경기장=경주장 운영
+골프장=골프장(연습장·스크린골프는 가능)
+성인게임|성인오락|성인PC|전화방|사행시설=성인게임장 등
+무도장|콜라텍|댄스홀=무도장
+증기탕|안마시술소|안마원=증기탕·안마시술소(시각장애인 운영 시 가능)
+점술|점집|무당|심령|철학관|운세|사주|타로=점술 및 유사서비스
+휴게텔|키스방|대화방=휴게텔·키스방 등`;
+const EXCL_OK_DEFAULT='부동산관리|골프연습|스크린골프|인조모피|유사의료';
+const RULES_DEFAULT={openBefore:'',minMonths:'',regions:[],btypeNo:[],revMax:'',issueMonths:3,excl:EXCL_DEFAULT,exclOk:EXCL_OK_DEFAULT};
+function rulesOf(p){return {...RULES_DEFAULT,...((p&&p.rules)||{})}}
+const digits=s=>String(s??'').replace(/[^0-9]/g,'');
+function bizChecksum(b){if(b.length!==10)return false;const w=[1,3,7,1,3,7,1,3,5];let s=0;for(let i=0;i<9;i++)s+=+b[i]*w[i];s+=Math.floor(+b[8]*5/10);return (10-s%10)%10===+b[9]}
+function normText(t){return String(t||'').replace(/[\s　]/g,'').replace(/중명|증멍/g,'증명').replace(/(\d)[OoＯ]/g,'$10').replace(/[OoＯ](\d)/g,'0$1')}
+function ymd(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
+function findDates(t){const out=[];const re=/(20\d\d)\s*[년.\-]\s*(\d{1,2})\s*[월.\-]\s*(\d{1,2})/g;let m;
+  while((m=re.exec(String(t||'')))){const d=new Date(+m[1],+m[2]-1,+m[3]);if(d.getMonth()===+m[2]-1&&d<=new Date())out.push(d)}return out}
+function monthsBetween(a,b){return (b.getFullYear()-a.getFullYear())*12+(b.getMonth()-a.getMonth())-(b.getDate()<a.getDate()?1:0)}
+function baseDate(p){return p&&p.start?new Date(p.start+'T00:00:00'):new Date()}
+function issueCheck(add,label,text,p,R){
+  const ds=findDates(text);if(!ds.length){add('warn',label+' 발급일','발급일을 찾지 못함 → 서류 열어 확인');return}
+  const iss=new Date(Math.max(...ds));const n=+R.issueMonths||0;if(!n){add('info',label+' 발급일',ymd(iss));return}
+  const cut=new Date(baseDate(p));cut.setMonth(cut.getMonth()-n);
+  if(iss<cut)add('fail',label+' 발급일',`${ymd(iss)} 발급 (기준 ${ymd(cut)} 이후 발급)`);else add('ok',label+' 발급일',ymd(iss)+' 발급')}
+function autoCheck(a,p,all){
+  const R=rulesOf(p);const ans=a.answers||{};const res=[];const add=(k,label,detail)=>res.push({k,label,detail:detail||''});
+  const g=(ik,fk)=>(ans[ik]||{})[fk];
+  const secs=effItems(p);const items=secs.flatMap(s=>s.items);const on=k=>items.some(i=>i.key===k&&i.on);
+  // A. 신청서
+  if(on('biz')){
+    const b=digits(g('biz','brn'));
+    if(b.length!==10)add('warn','사업자번호','자릿수 오류 또는 없음');
+    else{const mid=b.slice(3,5);
+      if(['80','82','83','84','85','89'].includes(mid))add('fail','사업자번호',`비영리법인·단체로 보임(가운데 ${mid})`);
+      else if(!bizChecksum(b))add('warn','사업자번호','형식 오류(오기 의심)');else add('ok','사업자번호','형식 정상');
+      const dupl=(all||[]).filter(x=>x.id!==a.id&&digits(((x.answers||{}).biz||{}).brn)===b).map(x=>x.id);
+      if(dupl.length)add('warn','중복 신청','같은 사업자번호: '+dupl.join(', '))}
+    const op=g('biz','open');
+    if(op){const od=new Date(op+'T00:00:00');
+      if(R.openBefore&&op>R.openBefore)add('fail','개업일',`${op} 개업 (기준 ${R.openBefore}까지 개업)`);
+      else if(R.minMonths&&monthsBetween(od,baseDate(p))<+R.minMonths)add('fail','업력',`${monthsBetween(od,baseDate(p))}개월 (기준 ${R.minMonths}개월 이상)`);
+      else if(R.openBefore||R.minMonths)add('ok','개업일·업력',op+' 개업')}
+    const bt=g('biz','btype');if(bt&&(R.btypeNo||[]).includes(bt))add('fail','사업자 유형',bt+' 제외 대상');
+    const ind=((g('biz','ind')||'')+' '+(g('goods','v')||'')).replace(/\s/g,'');
+    if(ind){let hit=null;if(!(R.exclOk&&new RegExp(R.exclOk).test(ind)))String(R.excl||'').split('\n').some(l=>{const [kw,nm]=l.split('=');if(!kw||!kw.trim())return false;
+        try{const m=ind.match(new RegExp(kw.trim()));if(m){hit=(nm||kw).trim()+' ['+m[0]+']';return true}}catch(e){}return false});
+      if(hit)add('warn','업종','제외 업종 의심: '+hit);else add('ok','업종','제외 업종 키워드 없음')}
+  }
+  if(on('biz')){
+    if(!a.nts)add('info','사업자 상태','국세청 조회 전 → [사업자 상태 조회] 누르기');
+    else{const n=a.nts,end=n.end?` (폐업일 ${n.end.replace(/(\d{4})(\d{2})(\d{2})/,'$1-$2-$3')})`:'';
+      if(n.cd==='01')add('ok','사업자 상태','계속사업자 · '+n.tax);
+      else if(n.cd==='02')add('warn','사업자 상태','휴업자'+end);
+      else if(n.cd==='03')add('fail','사업자 상태','폐업자'+end);
+      else add(/자릿수/.test(n.tax)?'warn':'fail','사업자 상태',n.tax||'국세청에 등록되지 않은 번호');
+      const bt=g('biz','btype')||'';
+      if(n.cd&&n.tax&&((bt.includes('간이')&&!n.tax.includes('간이'))||(bt.includes('일반')&&!n.tax.includes('일반'))||(bt==='법인'&&!/법인/.test(n.tax)&&/개인|간이/.test(n.tax))))add('warn','과세유형','신청서 '+bt+' / 국세청 '+n.tax)}
+  }
+  if(on('addr')&&(R.regions||[]).length){const sd=g('addr','sido');if(sd&&!R.regions.includes(sd))add('fail','지역',sd+' (대상 지역 아님)');else if(sd)add('ok','지역',sd)}
+  if(on('annual')&&R.revMax){const amt=+g('annual','amt')||0;if(amt>+R.revMax)add('fail','연매출',`${wonC_(amt)}원 (기준 ${wonC_(R.revMax)}원 이하)`);else add('ok','연매출',wonC_(amt)+'원')}
+  if(on('dup')){const d=[g('dup','inner')==='예'?'같은 사업 수혜':'',g('dup','outer')==='예'?'다른 기관 지원':''].filter(Boolean);if(d.length)add('warn','타 지원 중복',d.join(', ')+(g('dup','name')?' ('+g('dup','name')+')':''))}
+  const missDoc=items.filter(it=>it.on&&it.req&&!it.anyOf).flatMap(it=>it.fields.filter(f=>f.t==='file'&&!f.opt&&!(Array.isArray(g(it.key,f.k))&&g(it.key,f.k).length)).map(()=>it.label));
+  if(missDoc.length)add('fail','필수 서류','누락: '+missDoc.join(', '));
+  const ci=items.find(i=>i.key==='consent'&&i.on);if(ci){const f=ci.fields.find(x=>x.t==='consent');const v=g('consent',f.k)||[];if(v.length<f.opts.length)add('fail','개인(신용)정보 동의','동의하지 않은 항목 있음')}
+  // B. 서류 (글자 읽기 결과)
+  if(!a.ocr){add('info','서류 내용','서류 글자 읽기 전 (자동 처리 대기 중이거나 [서류 글자 읽기] 필요)')}
+  else if(a.ocr.some(o=>o.text===undefined&&!o.err&&o.len>0)){add('info','서류 내용','서류 판독 결과는 신청을 열면 불러옵니다')}
+  else{
+    const of=(ik,fk)=>a.ocr.filter(o=>o.ik===ik&&o.fk===fk);
+    a.ocr.filter(o=>o.err||o.len<20).forEach(o=>add('warn','글자 인식',o.name+(o.err?' 읽기 오류':' 글자 인식 안 됨(사진·스캔 확인)')));
+    const ceo=String(g('biz','ceo')||'').replace(/\s/g,''),bname=String(g('biz','name')||'').replace(/\s|\(예시\)/g,'');
+    of('brc','file').filter(o=>o.len>=20).forEach(o=>{const t=normText(o.text),td=digits(o.text);const L='사업자등록증명';
+      if(t.includes('사업자등록증명'))add('ok',L,'서류 종류 맞음');else if(t.includes('사업자등록증'))add('fail',L,'사업자등록증명이 아니라 사업자등록증으로 보임');else add('warn',L,'서류 종류 확인 안 됨');
+      if(t.includes('열람용'))add('warn',L,'열람용 문구 있음 → 직인 확인');
+      const b=digits(g('biz','brn'));if(b.length===10)add(td.includes(b)?'ok':'warn',L+' 사업자번호',td.includes(b)?'신청서와 같음':'서류에서 신청서 사업자번호 확인 안 됨');
+      if(ceo)add(t.includes(ceo)?'ok':'warn',L+' 대표자',t.includes(ceo)?'신청서와 같음':'서류에서 대표자명 확인 안 됨');
+      const op=g('biz','open');if(op){const od=digits(op);add(td.includes(od)?'ok':'warn',L+' 개업일',td.includes(od)?'신청서와 같음':'서류에서 개업일 확인 안 됨')}
+      issueCheck(add,L,o.text,p,R)});
+    of('annual','file').filter(o=>o.len>=20).forEach(o=>{const t=normText(o.text),td=digits(o.text);const L='매출 증빙';
+      if(/과세표준증명|수입금액증명/.test(t))add('ok',L,'서류 종류 맞음');else if(t.includes('소득금액증명'))add('fail',L,'소득금액증명은 인정 안 됨(과세표준증명·면세 수입금액증명만)');else add('warn',L,'서류 종류 확인 안 됨');
+      const amt=digits(g('annual','amt'));if(amt){const ok=td.includes(amt);add(ok?'ok':'warn',L+' 금액',ok?'신청서 연매출 금액이 서류에 있음':'신청서 연매출 '+wonC_(amt)+'원이 서류에서 확인 안 됨')}
+      issueCheck(add,L,o.text,p,R)});
+    of('bank','file').filter(o=>o.len>=20).forEach(o=>{const t=normText(o.text);const ok=(ceo&&t.includes(ceo))||(bname&&t.includes(bname));
+      add(ok?'ok':'warn','통장 사본 예금주',ok?'대표자명 또는 상호 확인':'예금주가 대표자·상호와 같은지 확인 안 됨')});
+  }
+  return res;
+}
+function autoSum(res){const f=res.filter(r=>r.k==='fail').length,w=res.filter(r=>r.k==='warn').length;return {f,w,verdict:f?'탈락후보':w?'확인필요':'정상',cls:f?'bad':w?'warn':'ok'}}
