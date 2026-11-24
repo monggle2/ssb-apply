@@ -7,7 +7,7 @@ const CATALOG=[
  {sec:'A',title:'신청자·사업자 기본',scope:'common',items:[
   {key:'biz',label:'사업자 정보',req:true,fields:[
     {k:'name',label:'상호',t:'text'},{k:'brn',label:'사업자등록번호',t:'text',ph:'000-00-00000'},{k:'ceo',label:'대표자명',t:'text'},
-    {k:'btype',label:'사업자 유형',t:'select',opts:['개인 일반과세자','개인 간이과세자','법인']},{k:'open',label:'개업일',t:'date'},{k:'ind',label:'업종',t:'text',ph:'예: 한식 음식점'}]},
+    {k:'btype',label:'사업자 유형',t:'select',opts:['개인 일반과세자','개인 간이과세자','개인 면세사업자','법인 일반과세자','법인 면세사업자']},{k:'open',label:'개업일',t:'date'},{k:'ind',label:'업종',t:'text',ph:'예: 한식 음식점'}]},
   {key:'contact',label:'연락처',req:true,fields:[{k:'phone',label:'전화',t:'tel',ph:'010-0000-0000'},{k:'email',label:'이메일',t:'email'}]},
   {key:'addr',label:'사업장 주소',req:true,fields:[{k:'sido',label:'시·도',t:'select',opts:SIDO},{k:'sigungu',label:'시·군·구',t:'text'},{k:'detail',label:'상세 주소',t:'text'}]},
   {key:'goods',label:'주요 취급 품목(상품·서비스)',req:true,fields:[{k:'v',label:'품목',t:'text',ph:'예: 수제 반찬, 도시락'}]},
@@ -20,7 +20,7 @@ const CATALOG=[
   {key:'sales',label:'사업장 자금수지표(월 매출)',req:true,help:'부가세 포함 금액, 원 단위',fields:[
     {k:'avgLast',label:'직전 연도 월평균',t:'number',unit:'원'},{k:'m6',label:'6개월 전 월 매출',t:'number',unit:'원'},{k:'m3',label:'3개월 전 월 매출',t:'number',unit:'원'},
     {k:'now',label:'지난달 월 매출',t:'number',unit:'원'},{k:'avg3',label:'최근 3개월 월평균',t:'number',unit:'원'}]},
-  {key:'annual',label:'직전 연도 연매출 + 부가세 과세표준증명원',req:true,fields:[{k:'amt',label:'직전 연도 연매출',t:'number',unit:'원'},{k:'file',label:'부가세 과세표준증명원',t:'file'}]},
+  {key:'annual',label:'직전 연도 연매출 + 매출 증빙 서류',req:true,help:'사업자번호 확인 결과에 맞는 서류를 올려 주세요',fields:[{k:'amt',label:'직전 연도 연매출',t:'number',unit:'원'},{k:'file',label:'매출 증빙 서류',t:'file'}]},
   {key:'cost',label:'월 지출·기타 수입 현황',req:true,help:'최근 3개월 평균, 원 단위. 없으면 0',fields:[
     {k:'material',label:'재료비',t:'number',unit:'원'},{k:'ad',label:'광고비',t:'number',unit:'원'},{k:'fee',label:'플랫폼 수수료',t:'number',unit:'원'},{k:'ship',label:'배송비',t:'number',unit:'원'},
     {k:'rent',label:'임대료',t:'number',unit:'원'},{k:'labor',label:'인건비',t:'number',unit:'원'},{k:'loanpay',label:'대출 상환 원리금',t:'number',unit:'원'},{k:'other',label:'기타 수입',t:'number',unit:'원'}]}
@@ -107,7 +107,7 @@ function plain(f,v){
 /* ---------- 서류 판독 글자 → 항목별 정리 (서버·담당자 화면 공용) ---------- */
 const PARSE_DOCS = {
   brc: { kind: '사업자등록', fields: ['서류종류', '등록번호', '상호(법인명)', '대표자', '개업연월일', '법인등록번호', '사업장 소재지', '본점소재지', '업태', '종목', '발급사유', '발급일', '발급기관'] },
-  annual: { kind: '매출증빙', fields: ['서류종류', '사업자번호', '상호', '대표자', '과세기간', '매출(과세표준) 합계', '발급일'] },
+  annual: { kind: '매출증빙', fields: ['서류종류', '사업자번호', '상호', '대표자', '과세기간', '매출액', '매출 근거', '발급일'] },
   bank: { kind: '통장', fields: ['은행', '계좌번호', '예금주'] }
 };
 function pxLabel_(w) { return w.split('').map(c => c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[ \\t\\r\\n]*'); }
@@ -124,6 +124,23 @@ function pxValue_(t, labels, stops) {
   }
   return '';
 }
+/* 쌍점이 없어도: 항목명 뒤 같은 줄의 값 (다음 항목명 앞까지) */
+function pxLoose_(t, labels, stops) {
+  const v = pxValue_(t, labels, stops);
+  if (v) return v;
+  for (const l of labels) {
+    const m = new RegExp('(?:^|\\n)[ \\t]*' + pxLabel_(l) + '[ \\t]*(?:\\([^)\\n]*\\))?[ \\t]+([^\\n]+)').exec(t);
+    if (m) {
+      let x = m[1];
+      (stops || []).forEach(s => { const i = x.search(new RegExp('[ \\t]' + pxLabel_(s))); if (i >= 0) x = x.slice(0, i); });
+      x = x.replace(/\s{2,}.*$/, '').trim();
+      if (x) return x;
+    }
+  }
+  return '';
+}
+function pxMoney_(s) { return String(s || '').replace(/[^0-9]/g, ''); }
+const DOC_NAME = { vat: '부가가치세 과세표준증명', exempt: '부가가치세 면세사업자 수입금액증명', income: '소득금액증명', fs: '표준재무제표증명' };
 function pxDate_(s) {
   const m = /(19|20)(\d\d)\s*[년.\-/]\s*(\d{1,2})\s*[월.\-/]\s*(\d{1,2})/.exec(String(s || ''));
   return m ? m[1] + m[2] + '-' + ('0' + m[3]).slice(-2) + '-' + ('0' + m[4]).slice(-2) : '';
@@ -162,15 +179,68 @@ function parseDoc(ik, text) {
     const ds = pxDates_(t).filter(d => d !== o['개업연월일']); o['발급일'] = ds.length ? ds.sort().pop() : '';
     o['발급기관'] = (/([가-힣]{1,10}세무서)/.exec(t) || [])[1] || '';
   } else if (ik === 'annual') {
-    o['서류종류'] = ((/(부가가치세\s*)?과세표준증명|면세사업자\s*수입금액증명|소득금액증명/.exec(t) || [])[0] || '').replace(/\s+/g, '');
+    const ns = t.replace(/\s+/g, '');
+    // 제목이 글자 단위로 흩어져 읽혀도 알아보도록 서류 고유 단어로도 구별
+    const type = /표준재무제표|표준손익계산서|표준재무상태표/.test(ns) ? 'fs'
+      : /면세사업자수입금액증명|면세사업자수입금액/.test(ns) ? 'exempt'
+      : /소득금액증명|종합소득세신고/.test(ns) ? 'income'
+      : /과세표준증명|매출과세표준/.test(ns) ? 'vat' : '';
+    o.__type = type;
+    o['서류종류'] = DOC_NAME[type] || '';
     o['사업자번호'] = pxBrn_(t);
-    o['상호'] = pxValue_(t, ['상호', '법인명'], ['성명', '대표자', '사업자']);
-    o['대표자'] = pxValue_(t, ['대표자', '성명'], ['주민', '생년월일', '사업자']);
-    const p = /(20\d\d)\s*[년.\-]\s*(\d{1,2})\s*[월.\-]\s*(\d{1,2})\s*일?\s*[~∼\-부터]+\s*(20\d\d)\s*[년.\-]\s*(\d{1,2})\s*[월.\-]\s*(\d{1,2})/.exec(t);
-    o['과세기간'] = p ? pxDate_(p[1] + '-' + p[2] + '-' + p[3]) + ' ~ ' + pxDate_(p[4] + '-' + p[5] + '-' + p[6]) : '';
-    const nums = (t.match(/\d{1,3}(?:,\d{3})+/g) || []).map(x => +x.replace(/,/g, ''));
-    o['매출(과세표준) 합계'] = nums.length ? String(Math.max.apply(null, nums)) : '';
-    const ds = pxDates_(t); o['발급일'] = ds.length ? ds.sort().pop() : '';
+    o['상호'] = pxLoose_(t, ['상호', '법인명'], ['성명', '대표자', '사업자', '주민']);
+    o['대표자'] = pxLoose_(t, ['대표자', '성명'], ['주민', '생년월일', '사업자', '상호']);
+    let amt = '', basis = '', from = '', to = '';
+    const D = '(20\\d\\d)\\s*[/.\\-]\\s*(\\d{1,2})\\s*[/.\\-]\\s*(\\d{1,2})';
+    const ymd = (y, m, d) => y + '-' + ('0' + m).slice(-2) + '-' + ('0' + d).slice(-2);
+    if (type === 'vat' || type === 'exempt') {
+      // 과세기간 줄: 부터 날짜, 까지 날짜, 그다음 첫 금액 = 계(과세표준) 또는 수입금액. 여러 기간이면 더함
+      const re = new RegExp(D + '\\s+' + D + '\\s+([\\d,]+)', 'g'); let m, sum = 0, n = 0;
+      while ((m = re.exec(t))) { sum += +pxMoney_(m[7]); n++; const f = ymd(m[1], m[2], m[3]), e = ymd(m[4], m[5], m[6]); if (!from || f < from) from = f; if (!to || e > to) to = e; }
+      if (n) { amt = String(sum); basis = (type === 'vat' ? '매출과세표준 계' : '수입금액') + (n > 1 ? ' ' + n + '개 기간 합계' : ''); }
+      else {
+        // 칸 순서가 섞여 읽힌 경우: 기간 날짜 뒤 처음 나오는 금액 (추정)
+        const m2 = new RegExp(D + '\\s+' + D + '[^\\d]{0,120}?(\\d{1,3}(?:,\\d{3})+|\\d+)').exec(t);
+        if (m2) { amt = pxMoney_(m2[7]); basis = (type === 'vat' ? '매출과세표준 계' : '수입금액') + '(추정)'; from = ymd(m2[1], m2[2], m2[3]); to = ymd(m2[4], m2[5], m2[6]); }
+      }
+    } else if (type === 'income') {
+      // 종합소득세 표 '수입금액' 줄의 사업 칸 (이자·배당·사업·근로·연금·기타·합계 순서의 세 번째)
+      const i = t.search(/수\s*입\s*금\s*액/);
+      if (i >= 0) {
+        const seg = t.slice(i, i + 400).split(/소\s*득\s*금\s*액/)[0];
+        const nums = (seg.match(/\d{1,3}(?:,\d{3})+|\b\d+\b/g) || []).filter(x => !/^20\d\d$/.test(x));
+        if (nums.length >= 3) { amt = pxMoney_(nums[2]); basis = '종합소득세 수입금액 중 사업소득'; }
+      }
+      if (!amt) {
+        // 칸 순서가 섞인 경우: 쉼표 금액 중 가장 큰 값 (추정, 근로소득 등이 섞이면 틀릴 수 있음)
+        const all = (t.match(/\d{1,3}(?:,\d{3})+/g) || []).map(pxMoney_).map(Number);
+        if (all.length) { amt = String(Math.max.apply(null, all)); basis = '수입금액(추정)'; }
+      }
+      const y = /(20\d\d)\s*년\s*귀\s*속/.exec(t); if (y) { from = y[1] + '-01-01'; to = y[1] + '-12-31'; }
+    } else if (type === 'fs') {
+      // 표준손익계산서의 'I.매출액' (코드 001은 건너뜀)
+      // 1쪽 첨부 서류 목록에도 '표준손익계산서'가 있어 마지막(실제 표 제목) 위치를 씀
+      let pi = -1; { const re = /표\s*준\s*손\s*익\s*계\s*산\s*서/g; let mm; while ((mm = re.exec(t))) pi = mm.index; }
+      const sub = pi >= 0 ? t.slice(pi) : t;
+      const mi = sub.search(/매\s*출\s*액/);
+      if (mi >= 0) {
+        const toks = sub.slice(mi, mi + 200).match(/[\d,]+/g) || [];
+        const hit = toks.find(x => /,/.test(x) || pxMoney_(x).length >= 4);
+        if (hit) { amt = pxMoney_(hit); basis = '표준손익계산서 매출액'; }
+      }
+      if (!amt && pi >= 0) {
+        // 칸 순서가 섞인 경우: 손익계산서에서 처음 나오는 쉼표 금액 (추정)
+        const h2 = (sub.match(/\d{1,3}(?:,\d{3})+/g) || [])[0];
+        if (h2) { amt = pxMoney_(h2); basis = '표준손익계산서 매출액(추정)'; }
+      }
+      const p1 = /(20\d\d)\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일\s*부\s*터[\s\S]{0,400}?(20\d\d)\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일\s*까\s*지/.exec(t)
+        || new RegExp(D + '\\s*~\\s*' + D).exec(t);
+      if (p1) { from = ymd(p1[1], p1[2], p1[3]); to = ymd(p1[4], p1[5], p1[6]); }
+    }
+    o['과세기간'] = from && to ? from + ' ~ ' + to : '';
+    o['매출액'] = amt;
+    o['매출 근거'] = basis;
+    const ds = pxDates_(t).filter(d => !from || (d !== from && d !== to)); o['발급일'] = ds.length ? ds.sort().pop() : '';
   } else if (ik === 'bank') {
     o['은행'] = (/([가-힣A-Za-z]{0,8}(?:은행|뱅크)|농협|수협|신협|새마을금고|우체국)/.exec(t) || [])[1] || '';
     const acc = pxValue_(t, ['계좌번호', '계좌']);
@@ -209,7 +279,16 @@ const EXCL_DEFAULT=`도박|사행|불건전|오락기구|경품용=도박·사�
 점술|점집|무당|심령|철학관|운세|사주|타로=점술 및 유사서비스
 휴게텔|키스방|대화방=휴게텔·키스방 등`;
 const EXCL_OK_DEFAULT='부동산관리|골프연습|스크린골프|인조모피|유사의료';
-const RULES_DEFAULT={openBefore:'',minMonths:'',regions:[],btypeNo:[],revMax:'',issueMonths:3,excl:EXCL_DEFAULT,exclOk:EXCL_OK_DEFAULT};
+const RULES_DEFAULT={openBefore:'',minMonths:'',regions:[],btypeNo:[],revMax:'',issueMonths:3,excl:EXCL_DEFAULT,exclOk:EXCL_OK_DEFAULT,allowSuspended:false,allowIncome:false};
+/* 사업자 구분(번호 가운데 두 자리)·과세유형 → 받을 매출 서류 */
+function bizKind(brn){const mid=String(brn||'').replace(/[^0-9]/g,'').slice(3,5);return ['81','82','83','84','85','86','87','88'].includes(mid)?'법인':'개인'}
+function taxKind(tax){tax=String(tax||'');return /면세/.test(tax)?'면세':/간이/.test(tax)?'간이':/일반/.test(tax)?'일반':''}
+function docFor(kind,tk){return tk==='면세'?(kind==='법인'?'fs':'exempt'):'vat'}
+function btypeOf(kind,tk){return kind+' '+(tk==='면세'?'면세사업자':tk==='간이'&&kind==='개인'?'간이과세자':'일반과세자')}
+function expectDoc(a,R){const ans=a.answers||{};const bz=ans.__biz;let kind,tk;
+  if(bz&&bz.kind&&bz.tk){kind=bz.kind;tk=bz.tk}
+  else{const bt=String((ans.biz||{}).btype||'');if(!bt)return null;kind=bt.startsWith('법인')?'법인':'개인';tk=/면세/.test(bt)?'면세':/간이/.test(bt)?'간이':'일반'}
+  const type=docFor(kind,tk);return {type,label:DOC_NAME[type],income:!!(R&&R.allowIncome)&&kind==='개인',kind,tk}}
 function rulesOf(p){return {...RULES_DEFAULT,...((p&&p.rules)||{})}}
 const digits=s=>String(s??'').replace(/[^0-9]/g,'');
 function bizChecksum(b){if(b.length!==10)return false;const w=[1,3,7,1,3,7,1,3,5];let s=0;for(let i=0;i<9;i++)s+=+b[i]*w[i];s+=Math.floor(+b[8]*5/10);return (10-s%10)%10===+b[9]}
@@ -249,14 +328,18 @@ function autoCheck(a,p,all){
       if(hit)add('warn','업종','제외 업종 의심: '+hit);else add('ok','업종','제외 업종 키워드 없음')}
   }
   if(on('biz')){
-    if(!a.nts)add('info','사업자 상태','국세청 조회 전 → [사업자 상태 조회] 누르기');
-    else{const n=a.nts,end=n.end?` (폐업일 ${n.end.replace(/(\d{4})(\d{2})(\d{2})/,'$1-$2-$3')})`:'';
-      if(n.cd==='01')add('ok','사업자 상태','계속사업자 · '+n.tax);
-      else if(n.cd==='02')add('warn','사업자 상태','휴업자'+end);
+    const bz=ans.__biz||null;
+    if(bz)add('info','신청 시 국세청 확인',bz.unverified?'확인 못 함(담당자 확인 필요)':`${bz.stt||'—'} · ${bz.tax||''}${bz.doc?' → 매출 서류 '+DOC_NAME[bz.doc]:''}${bz.demo?' (시연용 번호)':''}`);
+    const n=a.nts||(bz&&!bz.unverified?{cd:bz.cd,tax:bz.tax,end:bz.end,stt:bz.stt,demo:bz.demo}:null);
+    if(!n)add('info','사업자 상태','국세청 조회 전 → [사업자 상태 조회] 누르기');
+    else{const end=n.end?` (폐업일 ${String(n.end).replace(/(\d{4})(\d{2})(\d{2})/,'$1-$2-$3')})`:'';
+      if(n.cd==='01')add('ok','사업자 상태','계속사업자 · '+n.tax+(n.demo?' (시연용)':''));
+      else if(n.cd==='02')add(R.allowSuspended?'warn':'fail','사업자 상태','휴업자'+end+(R.allowSuspended?' (이 사업은 휴업자 허용)':''));
       else if(n.cd==='03')add('fail','사업자 상태','폐업자'+end);
       else add(/자릿수/.test(n.tax)?'warn':'fail','사업자 상태',n.tax||'국세청에 등록되지 않은 번호');
-      const bt=g('biz','btype')||'';
-      if(n.cd&&n.tax&&((bt.includes('간이')&&!n.tax.includes('간이'))||(bt.includes('일반')&&!n.tax.includes('일반'))||(bt==='법인'&&!/법인/.test(n.tax)&&/개인|간이/.test(n.tax))))add('warn','과세유형','신청서 '+bt+' / 국세청 '+n.tax)}
+      const bt=g('biz','btype')||'';const tk=taxKind(n.tax),bk=bizKind(g('biz','brn'));
+      if(bt&&n.cd&&tk){const btk=/면세/.test(bt)?'면세':/간이/.test(bt)?'간이':'일반';const bkk=bt.startsWith('법인')?'법인':'개인';
+        if(btk!==tk||(bkk!==bk&&bt!=='법인'))add('warn','과세유형','신청서 '+bt+' / 국세청 '+bk+' '+n.tax)}}
   }
   if(on('addr')&&(R.regions||[]).length){const sd=g('addr','sido');if(sd&&!R.regions.includes(sd))add('fail','지역',sd+' (대상 지역 아님)');else if(sd)add('ok','지역',sd)}
   if(on('annual')&&R.revMax){const amt=+g('annual','amt')||0;if(amt>+R.revMax)add('fail','연매출',`${wonC_(amt)}원 (기준 ${wonC_(R.revMax)}원 이하)`);else add('ok','연매출',wonC_(amt)+'원')}
@@ -278,9 +361,16 @@ function autoCheck(a,p,all){
       if(ceo)add(t.includes(ceo)?'ok':'warn',L+' 대표자',t.includes(ceo)?'신청서와 같음':'서류에서 대표자명 확인 안 됨');
       const op=g('biz','open');if(op){const od=digits(op);add(td.includes(od)?'ok':'warn',L+' 개업일',td.includes(od)?'신청서와 같음':'서류에서 개업일 확인 안 됨')}
       issueCheck(add,L,o.text,p,R)});
-    of('annual','file').filter(o=>o.len>=20).forEach(o=>{const t=normText(o.text),td=digits(o.text);const L='매출 증빙';
-      if(/과세표준증명|수입금액증명/.test(t))add('ok',L,'서류 종류 맞음');else if(t.includes('소득금액증명'))add('fail',L,'소득금액증명은 인정 안 됨(과세표준증명·면세 수입금액증명만)');else add('warn',L,'서류 종류 확인 안 됨');
-      const amt=digits(g('annual','amt'));if(amt){const ok=td.includes(amt);add(ok?'ok':'warn',L+' 금액',ok?'신청서 연매출 금액이 서류에 있음':'신청서 연매출 '+wonC_(amt)+'원이 서류에서 확인 안 됨')}
+    of('annual','file').filter(o=>o.len>=20).forEach(o=>{const L='매출 증빙';const v=parseDoc('annual',o.text);const exp=expectDoc(a,R);
+      if(!v.__type)add('warn',L,'서류 종류 확인 안 됨 ('+o.name+')');
+      else if(v.__type==='income'&&!(exp&&exp.income))add('fail',L,'소득금액증명은 이 사업에서 인정하지 않음'+(exp&&exp.kind==='법인'?' (법인)':' (설정에서 개인사업자 허용 가능)'));
+      else if(exp&&v.__type!==exp.type&&!(v.__type==='income'&&exp.income))add('warn',L,`${btypeOf(exp.kind,exp.tk)}는 ${exp.label} 제출 대상인데 ${DOC_NAME[v.__type]}을 냄`);
+      else add('ok',L,'서류 종류 맞음 ('+DOC_NAME[v.__type]+')');
+      const amt=digits(g('annual','amt'));const est=/추정/.test(v['매출 근거']||'');
+      if(!v['매출액'])add('warn',L+' 금액','서류에서 매출 금액을 찾지 못함 → 서류 열어 확인');
+      else if(amt){const same=v['매출액']===amt;add(same&&!est?'ok':'warn',L+' 금액',`서류 ${wonC_(v['매출액'])}원 / 신청서 ${wonC_(amt)}원 · ${v['매출 근거']}${est?' → 서류 열어 확인':''}`)}
+      else add(est?'warn':'info',L+' 금액',`서류 ${wonC_(v['매출액'])}원 · ${v['매출 근거']}`);
+      if(v['과세기간']){const [f,t2]=v['과세기간'].split(' ~ ');const mo=monthsBetween(new Date(f+'T00:00:00'),new Date(t2+'T00:00:00'))+1;if(mo<12)add('info',L+' 기간',`${v['과세기간']} (${mo}개월, 1년 미만)`)}
       issueCheck(add,L,o.text,p,R)});
     of('bank','file').filter(o=>o.len>=20).forEach(o=>{const t=normText(o.text);const ok=(ceo&&t.includes(ceo))||(bname&&t.includes(bname));
       add(ok?'ok':'warn','통장 사본 예금주',ok?'대표자명 또는 상호 확인':'예금주가 대표자·상호와 같은지 확인 안 됨')});

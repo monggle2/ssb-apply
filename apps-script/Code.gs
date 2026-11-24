@@ -204,6 +204,13 @@ function doGet(e) {
     const sections = withConsent_(effItems(p)).map(s => ({ sec: s.sec, title: s.title, items: s.items.filter(i => i.on).map(i => ({ key: i.key, label: i.label, req: i.req, help: i.help, anyOf: !!i.anyOf, fields: i.fields })) })).filter(s => s.items.length);
     return out_({ ok: true, program: { id: p.id, name: p.name, module: p.module, start: p.start, end: p.end, endTime: p.endTime, notice: p.notice, demo: p.demo, hasCode: !!p.code, sections } });
   }
+  if (q.api === 'bizcheck') {
+    const p = readPrograms_().find(x => x.id === q.pid);
+    if (!p || !p.open || !inPeriod_(p)) return out_({ ok: false, error: '접수 중인 사업이 아닙니다.' });
+    const c = bizCheck_(p, q.b);
+    delete c.raw;
+    return out_(c);
+  }
   if (q.api === 'fix') {
     const f = fixFind_(q.no, q.t);
     if (!f) return out_({ ok: false, error: '링크가 맞지 않거나 보완 제출 기간이 아닙니다. 담당자에게 문의해 주세요.' });
@@ -258,6 +265,15 @@ function doPost(e) {
       answers[f.ik][f.fk].push({ name: String(f.name).slice(0, 120) });
     }
     if (total > MAX_TOTAL) return out_({ ok: false, error: '첨부 파일 합계는 25MB 이하여야 합니다.' });
+    // 사업자번호 국세청 확인 (신청 화면과 같은 기준으로 다시 확인)
+    let bc = null;
+    if (answers.biz && answers.biz.brn) {
+      bc = bizCheck_(p, answers.biz.brn);
+      if (!bc.allowed) return out_({ ok: false, error: bc.msg, field: 'biz' });
+      answers.__biz = { stt: bc.stt || '', cd: bc.cd || '', tax: bc.tax || '', end: bc.end || '', kind: bc.kind || '', tk: bc.tk || '', doc: bc.doc || '', unverified: !!bc.unverified, demo: !!bc.demo, at: Date.now() };
+      if (bc.btype && !bc.unverified) answers.biz.btype = bc.btype;
+    }
+
     const miss = [];
     secs.forEach(s => s.items.filter(i => i.on && i.req).forEach(it => {
       const vals = it.fields.map(f => [f, (answers[it.key] || {})[f.k]]);
@@ -313,6 +329,7 @@ function doPost(e) {
       Object.keys(rowObj).forEach(k => { if (m[k]) row[m[k] - 1] = rowObj[k]; });
       sh.appendRow(row);
       af = null; // 여기부터는 저장 완료: 오류가 나도 파일을 지우지 않음
+      if (bc && bc.raw && !bc.demo) { try { ntsSave_([{ no, b: String(answers.biz.brn).replace(/[^0-9]/g, '') }], bc.raw, '신청 시 확인'); } catch (x) {} }
       try { writeProgramSheet_(p, secs, no, now, answers); } catch (x) { log_('시스템', no, '사업별 탭 기록 실패', '', x.message); }
     } finally { lock.releaseLock(); }
     return out_({ ok: true, no });
@@ -495,6 +512,51 @@ function adminSaveElig(no, status, kind, note, fixNote) {
   }
   log_(me, no, '적/부 판정', old.filter(Boolean).join(' / '), [status, kind, note].filter(Boolean).join(' / ') + (status === '보완 요청' && fixNote ? ' / 요청: ' + fixNote : ''));
   return { by: me, at: now.getTime(), link, fixNote: status === '보완 요청' ? String(fixNote || '') : undefined };
+}
+
+/* ---------- 사업자번호 확인 (신청 화면) ----------
+ * 국세청 조회 → 폐업·미등록 차단, 휴업은 사업 설정(휴업자 허용)에 따라, 과세유형에 맞는 매출 서류 안내 */
+const NTS_DAY_LIMIT = 5000;
+function ntsQuota_() {
+  const props = PropertiesService.getScriptProperties();
+  const today = ymd_(new Date());
+  const [d, c] = String(props.getProperty('NTS_DAY') || '').split('|');
+  const n = d === today ? (Number(c) || 0) : 0;
+  if (n >= NTS_DAY_LIMIT) return false;
+  props.setProperty('NTS_DAY', today + '|' + (n + 1));
+  return true;
+}
+function bizCheck_(p, brnRaw) {
+  const b = String(brnRaw || '').replace(/[^0-9]/g, '');
+  const R = rulesOf(p);
+  if (b.length !== 10) return { ok: true, allowed: false, msg: '사업자등록번호 10자리를 확인해 주세요.' };
+  let d = null, demo = false, unavailable = '';
+  if (p.demo && b === '1234567890') { demo = true; d = { b_no: b, b_stt: '계속사업자', b_stt_cd: '01', tax_type: '부가가치세 일반과세자', end_dt: '' }; }
+  else {
+    const cache = CacheService.getScriptCache();
+    const hit = cache.get('nts_' + b);
+    if (hit) d = JSON.parse(hit);
+    else {
+      try {
+        if (!PropertiesService.getScriptProperties().getProperty('NTS_KEY')) throw new Error('인증키 없음');
+        if (!ntsQuota_()) throw new Error('오늘 조회 한도 초과');
+        const res = ntsFetch_([b]);
+        d = res[b] || { b_no: b, b_stt: '', b_stt_cd: '', tax_type: '국세청에 등록되지 않은 사업자등록번호입니다.', end_dt: '' };
+        cache.put('nts_' + b, JSON.stringify(d), 21600);
+      } catch (e) { unavailable = e.message; }
+    }
+  }
+  const kind = bizKind(b);
+  if (unavailable) return { ok: true, allowed: true, unverified: true, kind, msg: '지금은 국세청 확인을 할 수 없어 담당자가 나중에 확인합니다. 사업자 유형을 직접 고르고 계속 작성해 주세요.' };
+  const cd = d.b_stt_cd || '', tk = taxKind(d.tax_type);
+  const o = { ok: true, stt: d.b_stt || '', cd, tax: d.tax_type || '', end: d.end_dt || '', kind, tk, demo, raw: { [b]: d } };
+  const endTxt = o.end ? ' (폐업일 ' + o.end.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3') + ')' : '';
+  if (cd === '03') return Object.assign(o, { allowed: false, msg: '국세청 확인 결과 폐업한 사업자' + endTxt + '라 신청할 수 없습니다.' });
+  if (cd === '02' && !R.allowSuspended) return Object.assign(o, { allowed: false, msg: '국세청 확인 결과 휴업 중인 사업자라 이 사업에는 신청할 수 없습니다.' });
+  if (cd !== '01' && cd !== '02') return Object.assign(o, { allowed: false, msg: '국세청에 등록되지 않은 번호입니다. 사업자등록번호를 다시 확인해 주세요.' });
+  const doc = docFor(kind, tk || '일반');
+  return Object.assign(o, { allowed: true, doc, docLabel: DOC_NAME[doc], incomeOk: !!R.allowIncome && kind === '개인', btype: btypeOf(kind, tk || '일반'),
+    msg: (cd === '02' ? '휴업 중인 사업자입니다. ' : '') + kind + ' ' + (o.tax || '') + ' → 매출 서류는 ' + DOC_NAME[doc] + (R.allowIncome && kind === '개인' ? ' (또는 소득금액증명)' : '') + '을 올려 주세요.' });
 }
 
 /* 보완 제출: 링크(접수번호+토큰) 확인 */
@@ -709,12 +771,17 @@ function ocrApp_(no, answers, who) {
   Object.keys(PARSE_DOCS).forEach(ik => {
     const d = PARSE_DOCS[ik];
     const head = ['접수번호', '파일명'].concat(d.fields, ['판독일시']);
-    const ps = ensureSheet_('판독_' + d.kind, head);
+    const pm = cols_('판독_' + d.kind, head); // 칸이 늘어나도 이름으로 맞춰 씀
+    const ps = pm._sh;
     const pids = colVals_(ps, 1);
     for (let i = pids.length - 1; i >= 0; i--) if (pids[i] === no) ps.deleteRow(i + 2);
     out.filter(o => o.ik === ik && !o.err && o.len > 0).forEach(o => {
       const v = parseDoc(ik, o.text);
-      ps.appendRow([no, o.name].concat(d.fields.map(f => cell_(v[f] || '')), [now]));
+      const row = new Array(pm._n).fill('');
+      const put = (k, x) => { if (pm[k]) row[pm[k] - 1] = x; };
+      put('접수번호', no); put('파일명', o.name); put('판독일시', now);
+      d.fields.forEach(f => put(f, cell_(v[f] || '')));
+      ps.appendRow(row);
     });
   });
   return out.map(o => ({ ik: o.ik, fk: o.fk, name: o.name, len: o.len, text: o.text.slice(0, 20000), err: o.err || '', at: now.getTime() }));
@@ -880,7 +947,7 @@ function autoRun() {
     // 1) 국세청 사업자 상태: 한꺼번에 조회
     if (props.getProperty('NTS_KEY')) {
       try {
-        const list = pend.filter(i => !ctx.nts[String(ctx.vals[i][0])]).map(i => ({ no: String(ctx.vals[i][0]), b: ctx.brnAt(i) }));
+        const list = pend.filter(i => !ctx.nts[String(ctx.vals[i][0])] && !((ctx.answersAt(i).__biz || {}).demo)).map(i => ({ no: String(ctx.vals[i][0]), b: ctx.brnAt(i) }));
         if (list.length) {
           const saved = ntsSave_(list, ntsFetch_(list.map(x => x.b)), '자동');
           Object.keys(saved).forEach(no => ctx.nts[no] = saved[no]);

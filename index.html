@@ -271,8 +271,8 @@ async function submitApply(secs){
     const body={pid:S.program.id,sid:S.sid,code:S.code||'',website:($('#a-hp')||{}).value||'',answers:clone(S.form),files};
     const r=await fetch(API,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(body)});
     const j=await r.json();
-    if(!j.ok){if(j.field==='code'){S.applyErr={__code:j.error};renderApply();document.getElementById('fi-__code')?.scrollIntoView({block:'center'})}else toast(j.error||'제출하지 못했습니다.');btn.disabled=false;st.textContent='';submitting=false;return}
-    S.submitted=j.no;S.applyErr={};S.form={};S.files={};S.restored=false;clearDraft();S.sid=newSid();renderApply();window.scrollTo(0,0);
+    if(!j.ok){if(j.field==='biz'){S.biz=null;S.applyErr={biz:j.error};renderApply();document.getElementById('fi-biz')?.scrollIntoView({block:'center'})}else if(j.field==='code'){S.applyErr={__code:j.error};renderApply();document.getElementById('fi-__code')?.scrollIntoView({block:'center'})}else toast(j.error||'제출하지 못했습니다.');btn.disabled=false;st.textContent='';submitting=false;return}
+    S.submitted=j.no;S.applyErr={};S.form={};S.files={};S.restored=false;S.biz=null;S._autoBiz=false;clearDraft();S.sid=newSid();renderApply();window.scrollTo(0,0);
   }catch(e){toast('제출 결과를 받지 못했습니다. 인터넷 연결을 확인하고 [제출]을 다시 눌러 주세요. 같은 신청이 두 번 접수되지는 않습니다.');btn.disabled=false;st.textContent=''}
   submitting=false;
 }
@@ -329,6 +329,54 @@ async function submitFix(){
     F.done=F.done.concat([{at:Date.now(),files:files.map(x=>x.name),memo:F.memo}]);F.sent=true;renderFix();window.scrollTo(0,0);
   }catch(e){toast('제출 결과를 받지 못했습니다. 인터넷 연결을 확인하고 다시 시도해 주세요.');btn.disabled=false;st.textContent=''}
   fixSending=false;
+}
+
+/* ---------- 사업자번호 확인 → 과세유형에 맞는 매출 서류 안내 ---------- */
+const dg=s=>String(s||'').replace(/[^0-9]/g,'');
+function bizUi(){
+  const inp=$('#f-biz-brn');if(!inp||!S.program)return;
+  if(!$('#a-bizchk')){
+    const wrap=document.createElement('div');wrap.className='row';wrap.style.cssText='gap:6px;flex-wrap:nowrap;align-items:stretch';
+    inp.parentNode.insertBefore(wrap,inp);wrap.appendChild(inp);
+    const btn=document.createElement('button');btn.type='button';btn.className='btn';btn.id='a-bizchk';btn.textContent='확인';btn.style.flex='0 0 auto';wrap.appendChild(btn);
+    const res=document.createElement('div');res.id='a-bizres';res.className='sm';res.style.marginTop='6px';wrap.after(res);
+    btn.onclick=()=>bizCheck();
+    inp.addEventListener('input',()=>{if(S.biz&&S.biz.b!==dg(inp.value)){S.biz=null;bizPaint()}});
+  }
+  bizPaint();
+  if(S.isSample&&!S.biz&&!S._autoBiz&&dg(inp.value).length===10){S._autoBiz=true;bizCheck()}
+}
+async function bizCheck(){
+  const inp=$('#f-biz-brn');const b=dg(inp&&inp.value);const btn=$('#a-bizchk');
+  if(b.length!==10){toast('사업자등록번호 10자리를 넣어 주세요.');inp&&inp.focus();return}
+  if(btn){btn.disabled=true;btn.textContent='확인 중'}
+  try{const r=await api({api:'bizcheck',pid:S.program.id,b});
+    if(r.error&&r.ok===false&&r.allowed===undefined){toast(r.error);return}
+    S.biz={b,...r};
+    if(S.applyErr.biz){delete S.applyErr.biz;const n=$('#fi-biz');if(n){n.classList.remove('invalid');n.querySelector('.err')?.remove()}}
+    if(!r.allowed)toast(r.msg||'신청할 수 없는 사업자입니다.');
+  }catch(e){toast('확인하지 못했습니다. 잠시 후 다시 눌러 주세요.')}
+  finally{if(btn){btn.disabled=false;btn.textContent='확인'}bizPaint()}
+}
+function bizPaint(){
+  const res=$('#a-bizres');const B=S.biz;
+  if(res){res.innerHTML=!B?'<span class="muted">번호를 넣고 [확인]을 눌러 주세요. 국세청에서 사업 상태와 과세유형을 확인합니다.</span>'
+    :!B.allowed?`<span class="pill bad">신청 불가</span> ${esc(B.msg||'')}`
+    :B.unverified?`<span class="pill warn">확인 대기</span> ${esc(B.msg||'')}`
+    :`<span class="pill ok">${esc(B.stt||'확인됨')}</span> ${esc(B.kind||'')} ${esc(B.tax||'')}${B.demo?' <span class="muted">(시연용 번호)</span>':''}`}
+  // 사업자 유형 자동 선택
+  const bt=$('#f-biz-btype');
+  if(bt){const lock=!!(B&&B.allowed&&!B.unverified&&B.btype);
+    if(lock&&bt.value!==B.btype){bt.value=B.btype;bt.dispatchEvent(new Event('change',{bubbles:true}))}
+    bt.disabled=lock;bt.title=lock?'국세청 확인 결과로 정해졌습니다':''}
+  // 매출 서류 칸
+  const fi=$('#f-annual-file');const lab=document.querySelector('label[for="f-annual-file"]');
+  if(fi){
+    let h=$('#a-annual-help');if(!h){h=document.createElement('div');h.id='a-annual-help';h.className='help';fi.parentNode.insertBefore(h,fi)}
+    if(!B||!B.allowed){fi.disabled=true;h.textContent=!B?'사업자번호 [확인]을 먼저 눌러 주세요. 확인 결과에 맞는 매출 서류를 안내합니다.':'신청할 수 없는 사업자라 서류를 올릴 수 없습니다.';if(lab)lab.textContent='매출 증빙 서류'}
+    else if(B.unverified){fi.disabled=false;h.textContent='일반·간이과세자: 부가가치세 과세표준증명 / 개인 면세사업자: 부가가치세 면세사업자 수입금액증명 / 법인 면세사업자: 표준재무제표증명';if(lab)lab.textContent='매출 증빙 서류'}
+    else{fi.disabled=false;if(lab)lab.textContent=B.docLabel+(B.incomeOk?' (또는 소득금액증명)':'');h.textContent=B.msg||''}
+  }
 }
 
 function renderApply(){
@@ -429,6 +477,7 @@ function bindApply(secs){
   const cd=$('#a-code');if(cd)cd.oninput=e=>{S.code=e.target.value;if(S.applyErr.__code){delete S.applyErr.__code;const n=$('#fi-__code');n.classList.remove('invalid');n.querySelector('.err')?.remove()}};
   const sb=$('#a-sample');if(sb)sb.onclick=()=>{fillSample(secs);renderApply();toast('예시 값을 채웠습니다. 파일은 직접 골라 주세요.')};
   f.addEventListener('submit',e=>{e.preventDefault();submitApply(secs)});
+  bizUi();
 }
 function validate(secs){
   const errs={};
@@ -439,7 +488,9 @@ function validate(secs){
     vals.forEach(([f,v])=>{if(f.pattern&&v&&!new RegExp(f.pattern).test(v))errs[it.key]=`${f.label} 형식을 확인해 주세요(예: ${f.ph}).`;
       if(f.t==='email'&&v&&!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v))errs[it.key]='이메일 형식을 확인해 주세요.'});
   }));
-  {const bz=String(val('biz','brn')||'').replace(/[^0-9]/g,'');if(bz&&bz.length!==10&&!errs.biz)errs.biz='사업자등록번호 10자리를 확인해 주세요.'}
+  {const bz=String(val('biz','brn')||'').replace(/[^0-9]/g,'');if(bz&&bz.length!==10&&!errs.biz)errs.biz='사업자등록번호 10자리를 확인해 주세요.';
+   else if(bz&&!errs.biz&&(!S.biz||S.biz.b!==bz))errs.biz='사업자등록번호 옆 [확인]을 눌러 주세요.';
+   else if(bz&&!errs.biz&&S.biz&&!S.biz.allowed)errs.biz=S.biz.msg||'신청할 수 없는 사업자입니다.'}
   if(S.program&&S.program.hasCode&&!String(S.code||'').trim())errs.__code='신청 코드를 넣어 주세요.';
   return errs;
 }
