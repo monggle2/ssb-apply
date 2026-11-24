@@ -491,7 +491,7 @@ function bindApply(secs){
   const cd=$('#a-code');if(cd)cd.oninput=e=>{S.code=e.target.value;if(S.applyErr.__code){delete S.applyErr.__code;const n=$('#fi-__code');n.classList.remove('invalid');n.querySelector('.err')?.remove()}};
   const sb=$('#a-sample');if(sb)sb.onclick=()=>{fillSample(secs);renderApply();toast('예시 값을 채웠습니다. 파일은 직접 골라 주세요.')};
   f.addEventListener('submit',e=>{e.preventDefault();submitApply(secs)});
-  bizUi();annualUi();
+  bizUi();
 }
 function validate(secs){
   const errs={};
