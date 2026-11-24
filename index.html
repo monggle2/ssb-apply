@@ -381,6 +381,18 @@ function bizPaint(){
   }
 }
 
+/* 매출 기간 기본값: 직전 연도 1월 1일~12월 31일, 그 사이 개업이면 개업일부터 (직접 고치면 그대로 둠) */
+function annualUi(){
+  const f=$('#f-annual-from'),t=$('#f-annual-to');if(!f||!t)return;
+  const y=new Date().getFullYear()-1,S0=y+'-01-01',E0=y+'-12-31';
+  const op=val('biz','open')||'';const want=op&&op>S0&&op<=E0?op:S0;
+  S.form.annual=S.form.annual||{};
+  if(!S.form.annual.from||S.form.annual._autoFrom){if(S.form.annual.from!==want){S.form.annual.from=want;f.value=want}S.form.annual._autoFrom=true}
+  if(!S.form.annual.to){S.form.annual.to=E0;t.value=E0}
+  if(!f._b){f._b=1;f.addEventListener('input',()=>{S.form.annual._autoFrom=false})}
+  const o=$('#f-biz-open');if(o&&!o._b){o._b=1;o.addEventListener('change',()=>setTimeout(annualUi,0));o.addEventListener('input',()=>setTimeout(annualUi,0))}
+}
+
 function renderApply(){
   const el=$('#view-apply');const p=S.program;if(!p)return;
   if(S.submitted){el.innerHTML=`<div class="panel done"><h2 style="font-size:20px">신청이 접수되었습니다</h2><div class="no">${esc(S.submitted)}</div>
@@ -479,7 +491,7 @@ function bindApply(secs){
   const cd=$('#a-code');if(cd)cd.oninput=e=>{S.code=e.target.value;if(S.applyErr.__code){delete S.applyErr.__code;const n=$('#fi-__code');n.classList.remove('invalid');n.querySelector('.err')?.remove()}};
   const sb=$('#a-sample');if(sb)sb.onclick=()=>{fillSample(secs);renderApply();toast('예시 값을 채웠습니다. 파일은 직접 골라 주세요.')};
   f.addEventListener('submit',e=>{e.preventDefault();submitApply(secs)});
-  bizUi();
+  bizUi();annualUi();
 }
 function validate(secs){
   const errs={};

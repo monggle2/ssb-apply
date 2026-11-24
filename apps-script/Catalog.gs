@@ -20,7 +20,7 @@ const CATALOG=[
   {key:'sales',label:'사업장 자금수지표(월 매출)',req:true,help:'부가세 포함 금액, 원 단위',fields:[
     {k:'avgLast',label:'직전 연도 월평균',t:'number',unit:'원'},{k:'m6',label:'6개월 전 월 매출',t:'number',unit:'원'},{k:'m3',label:'3개월 전 월 매출',t:'number',unit:'원'},
     {k:'now',label:'지난달 월 매출',t:'number',unit:'원'},{k:'avg3',label:'최근 3개월 월평균',t:'number',unit:'원'}]},
-  {key:'annual',label:'직전 연도 연매출 + 매출 증빙 서류',req:true,help:'사업자번호 확인 결과에 맞는 서류를 올려 주세요',fields:[{k:'amt',label:'직전 연도 연매출',t:'number',unit:'원'},{k:'file',label:'매출 증빙 서류',t:'file'}]},
+  {key:'annual',label:'직전 연도 연매출 + 매출 증빙 서류',req:true,help:'매출 기간은 직전 연도 1월 1일~12월 31일, 그 사이에 개업했으면 개업일부터. 사업자번호 확인 결과에 맞는 서류를 올려 주세요',fields:[{k:'amt',label:'직전 연도 연매출',t:'number',unit:'원'},{k:'from',label:'매출 기간 시작',t:'date'},{k:'to',label:'매출 기간 종료',t:'date'},{k:'file',label:'매출 증빙 서류',t:'file'}]},
   {key:'cost',label:'월 지출·기타 수입 현황',req:true,help:'최근 3개월 평균, 원 단위. 없으면 0',fields:[
     {k:'material',label:'재료비',t:'number',unit:'원'},{k:'ad',label:'광고비',t:'number',unit:'원'},{k:'fee',label:'플랫폼 수수료',t:'number',unit:'원'},{k:'ship',label:'배송비',t:'number',unit:'원'},
     {k:'rent',label:'임대료',t:'number',unit:'원'},{k:'labor',label:'인건비',t:'number',unit:'원'},{k:'loanpay',label:'대출 상환 원리금',t:'number',unit:'원'},{k:'other',label:'기타 수입',t:'number',unit:'원'}]}
@@ -285,6 +285,15 @@ function bizKind(brn){const mid=String(brn||'').replace(/[^0-9]/g,'').slice(3,5)
 function taxKind(tax){tax=String(tax||'');return /면세/.test(tax)?'면세':/간이/.test(tax)?'간이':/일반/.test(tax)?'일반':''}
 function docFor(kind,tk){return tk==='면세'?(kind==='법인'?'fs':'exempt'):'vat'}
 function btypeOf(kind,tk){return kind+' '+(tk==='면세'?'면세사업자':tk==='간이'&&kind==='개인'?'간이과세자':'일반과세자')}
+/* 서류 과세기간이 신청서 매출 기간 안에 있는지. 늦게 시작하면 개업일 때문인지 확인 */
+function periodCheck(ds,de,from,to,open){
+  if(!from||!to)return null;const mon=d=>String(d||'').slice(0,7);
+  const exp=open&&open>from?open:from; // 기간 중 개업했으면 개업일부터
+  if(ds<from||de>to)return {k:'warn',msg:`서류 ${ds} ~ ${de}가 신청서 매출 기간 ${from} ~ ${to} 밖을 포함`};
+  if(mon(ds)>mon(exp))return {k:'warn',msg:`서류가 ${ds}부터 시작 (${open&&open>from?'개업일 '+open:'매출 기간 시작 '+from}보다 늦음) → 빠진 기간 확인`};
+  if(mon(de)<mon(to))return {k:'warn',msg:`서류가 ${de}에 끝남 (매출 기간 종료 ${to}보다 이름) → 뒤 기간 서류 누락 확인`};
+  return {k:'ok',msg:`서류 ${ds} ~ ${de} · 신청서 매출 기간 안`};
+}
 function expectDoc(a,R){const ans=a.answers||{};const bz=ans.__biz;let kind,tk;
   if(bz&&bz.kind&&bz.tk){kind=bz.kind;tk=bz.tk}
   else{const bt=String((ans.biz||{}).btype||'');if(!bt)return null;kind=bt.startsWith('법인')?'법인':'개인';tk=/면세/.test(bt)?'면세':/간이/.test(bt)?'간이':'일반'}
@@ -370,7 +379,10 @@ function autoCheck(a,p,all){
       if(!v['매출액'])add('warn',L+' 금액','서류에서 매출 금액을 찾지 못함 → 서류 열어 확인');
       else if(amt){const same=v['매출액']===amt;add(same&&!est?'ok':'warn',L+' 금액',`서류 ${wonC_(v['매출액'])}원 / 신청서 ${wonC_(amt)}원 · ${v['매출 근거']}${est?' → 서류 열어 확인':''}`)}
       else add(est?'warn':'info',L+' 금액',`서류 ${wonC_(v['매출액'])}원 · ${v['매출 근거']}`);
-      if(v['과세기간']){const [f,t2]=v['과세기간'].split(' ~ ');const mo=monthsBetween(new Date(f+'T00:00:00'),new Date(t2+'T00:00:00'))+1;if(mo<12)add('info',L+' 기간',`${v['과세기간']} (${mo}개월, 1년 미만)`)}
+      if(v['과세기간']){const [f,t2]=v['과세기간'].split(' ~ ');const mo=monthsBetween(new Date(f+'T00:00:00'),new Date(t2+'T00:00:00'))+1;
+        const pc=periodCheck(f,t2,g('annual','from'),g('annual','to'),g('biz','open'));
+        if(pc)add(pc.k,L+' 기간',pc.msg+(mo<12?` · ${mo}개월`:''));else if(mo<12)add('info',L+' 기간',`${v['과세기간']} (${mo}개월, 1년 미만)`)}
+      else if(g('annual','from'))add('warn',L+' 기간','서류에서 과세기간을 찾지 못함 → 서류 열어 확인');
       issueCheck(add,L,o.text,p,R)});
     of('bank','file').filter(o=>o.len>=20).forEach(o=>{const t=normText(o.text);const ok=(ceo&&t.includes(ceo))||(bname&&t.includes(bname));
       add(ok?'ok':'warn','통장 사본 예금주',ok?'대표자명 또는 상호 확인':'예금주가 대표자·상호와 같은지 확인 안 됨')});
