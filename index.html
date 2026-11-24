@@ -339,7 +339,8 @@ function bizUi(){
     const wrap=document.createElement('div');wrap.className='row';wrap.style.cssText='gap:6px;flex-wrap:nowrap;align-items:stretch';
     inp.parentNode.insertBefore(wrap,inp);wrap.appendChild(inp);
     const btn=document.createElement('button');btn.type='button';btn.className='btn';btn.id='a-bizchk';btn.textContent='확인';btn.style.flex='0 0 auto';wrap.appendChild(btn);
-    const res=document.createElement('div');res.id='a-bizres';res.className='sm';res.style.marginTop='6px';wrap.after(res);
+    const res=document.createElement('div');res.id='a-bizres';res.className='sm';res.style.marginTop='8px';
+    const grid=inp.closest('.subgrid,.stack');(grid||wrap).after(res); // 칸 줄 맞춤이 깨지지 않게 칸 묶음 아래에 표시
     btn.onclick=()=>bizCheck();
     inp.addEventListener('input',()=>{if(S.biz&&S.biz.b!==dg(inp.value)){S.biz=null;bizPaint()}});
   }
@@ -367,7 +368,8 @@ function bizPaint(){
   // 사업자 유형 자동 선택
   const bt=$('#f-biz-btype');
   if(bt){const lock=!!(B&&B.allowed&&!B.unverified&&B.btype);
-    if(lock&&bt.value!==B.btype){bt.value=B.btype;bt.dispatchEvent(new Event('change',{bubbles:true}))}
+    if(lock){S.form.biz=S.form.biz||{};if(S.form.biz.btype!==B.btype)S.form.biz.btype=B.btype;if(bt.value!==B.btype)bt.value=B.btype;
+      if(S.applyErr.biz&&/사업자 유형/.test(S.applyErr.biz)){delete S.applyErr.biz;const n=$('#fi-biz');if(n){n.classList.remove('invalid');n.querySelector('.err')?.remove()}}}
     bt.disabled=lock;bt.title=lock?'국세청 확인 결과로 정해졌습니다':''}
   // 매출 서류 칸
   const fi=$('#f-annual-file');const lab=document.querySelector('label[for="f-annual-file"]');
