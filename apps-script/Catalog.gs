@@ -190,18 +190,18 @@ function parseDoc(ik, text) {
     o['사업자번호'] = pxBrn_(t);
     o['상호'] = pxLoose_(t, ['상호', '법인명'], ['성명', '대표자', '사업자', '주민']);
     o['대표자'] = pxLoose_(t, ['대표자', '성명'], ['주민', '생년월일', '사업자', '상호']);
-    let amt = '', basis = '', from = '', to = '';
+    let amt = '', basis = '', from = '', to = ''; const rows = [];
     const D = '(20\\d\\d)\\s*[/.\\-]\\s*(\\d{1,2})\\s*[/.\\-]\\s*(\\d{1,2})';
     const ymd = (y, m, d) => y + '-' + ('0' + m).slice(-2) + '-' + ('0' + d).slice(-2);
     if (type === 'vat' || type === 'exempt') {
       // 과세기간 줄: 부터 날짜, 까지 날짜, 그다음 첫 금액 = 계(과세표준) 또는 수입금액. 여러 기간이면 더함
       const re = new RegExp(D + '\\s+' + D + '\\s+([\\d,]+)', 'g'); let m, sum = 0, n = 0;
-      while ((m = re.exec(t))) { sum += +pxMoney_(m[7]); n++; const f = ymd(m[1], m[2], m[3]), e = ymd(m[4], m[5], m[6]); if (!from || f < from) from = f; if (!to || e > to) to = e; }
+      while ((m = re.exec(t))) { sum += +pxMoney_(m[7]); n++; const f = ymd(m[1], m[2], m[3]), e = ymd(m[4], m[5], m[6]); rows.push({ f, e, amt: +pxMoney_(m[7]) }); if (!from || f < from) from = f; if (!to || e > to) to = e; }
       if (n) { amt = String(sum); basis = (type === 'vat' ? '매출과세표준 계' : '수입금액') + (n > 1 ? ' ' + n + '개 기간 합계' : ''); }
       else {
         // 칸 순서가 섞여 읽힌 경우: 기간 날짜 뒤 처음 나오는 금액 (추정)
         const m2 = new RegExp(D + '\\s+' + D + '[^\\d]{0,120}?(\\d{1,3}(?:,\\d{3})+|\\d+)').exec(t);
-        if (m2) { amt = pxMoney_(m2[7]); basis = (type === 'vat' ? '매출과세표준 계' : '수입금액') + '(추정)'; from = ymd(m2[1], m2[2], m2[3]); to = ymd(m2[4], m2[5], m2[6]); }
+        if (m2) { amt = pxMoney_(m2[7]); basis = (type === 'vat' ? '매출과세표준 계' : '수입금액') + '(추정)'; from = ymd(m2[1], m2[2], m2[3]); to = ymd(m2[4], m2[5], m2[6]); rows.push({ f: from, e: to, amt: +amt }); }
       }
     } else if (type === 'income') {
       // 종합소득세 표 '수입금액' 줄의 사업 칸 (이자·배당·사업·근로·연금·기타·합계 순서의 세 번째)
@@ -237,6 +237,8 @@ function parseDoc(ik, text) {
         || new RegExp(D + '\\s*~\\s*' + D).exec(t);
       if (p1) { from = ymd(p1[1], p1[2], p1[3]); to = ymd(p1[4], p1[5], p1[6]); }
     }
+    if (!rows.length && from && to && amt) rows.push({ f: from, e: to, amt: +amt });
+    o.__rows = rows;
     o['과세기간'] = from && to ? from + ' ~ ' + to : '';
     o['매출액'] = amt;
     o['매출 근거'] = basis;
@@ -285,6 +287,22 @@ function bizKind(brn){const mid=String(brn||'').replace(/[^0-9]/g,'').slice(3,5)
 function taxKind(tax){tax=String(tax||'');return /면세/.test(tax)?'면세':/간이/.test(tax)?'간이':/일반/.test(tax)?'일반':''}
 function docFor(kind,tk){return tk==='면세'?(kind==='법인'?'fs':'exempt'):'vat'}
 function btypeOf(kind,tk){return kind+' '+(tk==='면세'?'면세사업자':tk==='간이'&&kind==='개인'?'간이과세자':'일반과세자')}
+/* 사업 매출 기간에 들어가는 신고 줄만 골라 더함. 걸친 줄은 빼고 따로 알림. 기간 미설정이면 null */
+function pickPeriod(v,from,to){
+  const rows=(v&&v.__rows)||[];if(!from||!to||!rows.length)return null;
+  const inn=rows.filter(r=>r.f>=from&&r.e<=to),cross=rows.filter(r=>!(r.f>=from&&r.e<=to)&&r.f<=to&&r.e>=from);
+  const amt=inn.reduce((a,r)=>a+r.amt,0);
+  return {inn,cross,total:rows.length,amt:inn.length?String(amt):'',
+    from:inn.length?inn.map(r=>r.f).sort()[0]:'',to:inn.length?inn.map(r=>r.e).sort().pop():''};
+}
+/* 판독값(v)을 사업 매출 기간 해당분으로 바꿈 */
+function applyPeriod(v,R){
+  const pk=pickPeriod(v,R.revFrom,R.revTo);if(!pk)return null;
+  if(pk.total>1||pk.cross.length||!pk.inn.length){const base=String(v['매출 근거']||'').replace(/\s*\d+개 기간 합계/,'');
+    v['매출 근거']=base+` · 서류 ${pk.total}개 기간 중 ${pk.inn.length}개 (${R.revFrom} ~ ${R.revTo} 해당분)`;}
+  v['매출액']=pk.amt;v['과세기간']=pk.inn.length?pk.from+' ~ '+pk.to:'';
+  return pk;
+}
 /* 서류 과세기간이 사업 매출 기간 안에 있는지. 늦게 시작하면 개업일 때문인지 확인 */
 function periodCheck(ds,de,from,to,open){
   if(!from||!to)return null;const mon=d=>String(d||'').slice(0,7);
@@ -375,6 +393,9 @@ function autoCheck(a,p,all){
       else if(v.__type==='income'&&!(exp&&exp.income))add('fail',L,'소득금액증명은 이 사업에서 인정하지 않음'+(exp&&exp.kind==='법인'?' (법인)':' (설정에서 개인사업자 허용 가능)'));
       else if(exp&&v.__type!==exp.type&&!(v.__type==='income'&&exp.income))add('warn',L,`${btypeOf(exp.kind,exp.tk)}는 ${exp.label} 제출 대상인데 ${DOC_NAME[v.__type]}을 냄`);
       else add('ok',L,'서류 종류 맞음 ('+DOC_NAME[v.__type]+')');
+      const pk=applyPeriod(v,R);
+      if(pk){if(pk.cross.length)add('warn',L+' 기간 걸침',pk.cross.map(r=>`${r.f} ~ ${r.e} (${wonC_(String(r.amt))}원)`).join(', ')+' → 매출 기간에 걸쳐 있어 뺌, 서류 열어 확인');
+        if(!pk.inn.length)add('warn',L+' 기간',`서류에 ${R.revFrom} ~ ${R.revTo} 안의 신고 기간이 없음 → 서류 열어 확인`);}
       const amt=digits(g('annual','amt'));const est=/추정/.test(v['매출 근거']||'');
       if(!v['매출액'])add('warn',L+' 금액','서류에서 매출 금액을 찾지 못함 → 서류 열어 확인');
       else if(amt){const same=v['매출액']===amt;add(same&&!est?'ok':'warn',L+' 금액',`서류 ${wonC_(v['매출액'])}원 / 신청서 ${wonC_(amt)}원 · ${v['매출 근거']}${est?' → 서류 열어 확인':''}`)}
@@ -382,7 +403,7 @@ function autoCheck(a,p,all){
       if(v['과세기간']){const [f,t2]=v['과세기간'].split(' ~ ');const mo=monthsBetween(new Date(f+'T00:00:00'),new Date(t2+'T00:00:00'))+1;
         const pc=periodCheck(f,t2,R.revFrom,R.revTo,g('biz','open'));
         if(pc)add(pc.k,L+' 기간',pc.msg+(mo<12?` · ${mo}개월`:''));else if(mo<12)add('info',L+' 기간',`${v['과세기간']} (${mo}개월, 1년 미만)`)}
-      else if(R.revFrom&&R.revTo)add('warn',L+' 기간','서류에서 과세기간을 찾지 못함 → 서류 열어 확인');
+      else if(R.revFrom&&R.revTo&&!pk)add('warn',L+' 기간','서류에서 과세기간을 찾지 못함 → 서류 열어 확인');
       issueCheck(add,L,o.text,p,R)});
     of('bank','file').filter(o=>o.len>=20).forEach(o=>{const t=normText(o.text);const ok=(ceo&&t.includes(ceo))||(bname&&t.includes(bname));
       add(ok?'ok':'warn','통장 사본 예금주',ok?'대표자명 또는 상호 확인':'예금주가 대표자·상호와 같은지 확인 안 됨')});
