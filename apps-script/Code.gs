@@ -34,6 +34,8 @@ function onOpen() {
     .addItem('4. 자동 처리 끄기', 'autoOff')
     .addItem('자동 처리 지금 한 번 실행', 'autoRun')
     .addSeparator()
+    .addItem('사업자번호 일괄조회 실행', 'bulkRun')
+    .addSeparator()
     .addItem('관리 정보 보기', 'showInfo')
     .addToUi();
 }
@@ -247,6 +249,11 @@ function doPost(e) {
       it.fields.forEach(f => {
         if (f.t === 'file') { o[f.k] = []; fileField[it.key + '.' + f.k] = true; return; }
         const v = src[f.k];
+        if (f.t === 'rows') {
+          const rs = Array.isArray(v) ? v.filter(r => r && typeof r === 'object' && Object.keys(r).some(k => String(r[k] == null ? '' : r[k]).trim())).slice(0, f.max || 10) : [];
+          if (rs.length) o[f.k] = clip_(rs, 300);
+          return;
+        }
         if (v == null || v === '') return;
         o[f.k] = clip_(v, f.t === 'textarea' ? (f.max || 2000) : 300);
       });

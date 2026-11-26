@@ -460,10 +460,10 @@ function fField(it,f){
        ${f.stmts.map((s,si)=>`<tr><td>${esc(s)}</td>${[1,2,3,4].map(n=>`<td class="num"><input type="radio" name="${id}-${si}" ${nm} data-scale="${si}" value="${n}" aria-label="${esc(s)} ${n}점"${sv[si]==n?' checked':''} style="accent-color:var(--accent);width:16px;height:16px"></td>`).join('')}</tr>`).join('')}
       </tbody></table></div></div>`;}
     case 'rows':{
-      const rv=v||[];
-      return `<div class="field"><span class="flabel">${esc(f.label)}${star}</span><div class="tbl"><table><thead><tr><th>#</th>${f.cols.map(c=>`<th>${esc(c.label)}</th>`).join('')}</tr></thead><tbody>
-       ${Array.from({length:f.n},(_,r)=>`<tr><td class="num">${r+1}</td>${f.cols.map(c=>`<td><input type="text" ${c.t==='number'?'inputmode="numeric" data-num="1"':''} ${nm} data-row="${r}" data-col="${c.k}" aria-label="${r+1}행 ${esc(c.label)}" value="${esc(c.t==='number'?won((rv[r]||{})[c.k]):((rv[r]||{})[c.k]||''))}"></td>`).join('')}</tr>`).join('')}
-      </tbody></table></div></div>`;}
+      const mx=f.max||10,rv=Array.isArray(v)?v:[],n=Math.min(mx,Math.max(1,rv.length));
+      return `<div class="field" data-rowsf="${it.key}.${f.k}"><span class="flabel">${esc(f.label)}${star}</span><div class="tbl"><table><thead><tr><th>#</th>${f.cols.map(c=>`<th>${esc(c.label)}</th>`).join('')}<th></th></tr></thead><tbody>
+       ${Array.from({length:n},(_,r)=>`<tr><td class="num">${r+1}</td>${f.cols.map(c=>`<td><input type="text" ${c.t==='number'?'inputmode="numeric" data-num="1"':''} ${nm} data-row="${r}" data-col="${c.k}" aria-label="${r+1}행 ${esc(c.label)}" value="${esc(c.t==='number'?won((rv[r]||{})[c.k]):((rv[r]||{})[c.k]||''))}"></td>`).join('')}<td><button type="button" class="btn ghost sm" ${nm} data-rowdel="${r}" aria-label="${r+1}행 삭제">삭제</button></td></tr>`).join('')}
+      </tbody></table></div>${n<mx?`<div><button type="button" class="btn sm" ${nm} data-rowadd="1">+ 줄 추가</button></div>`:`<span class="help">최대 ${mx}줄</span>`}</div>`;}
   }
   return '';
 }
@@ -488,6 +488,12 @@ function bindApply(secs){
       const lst=t.parentElement.querySelector('.filelist');const html=ok.length?`<div class="filelist">${ok.map(x=>`<span class="pill">${esc(x.name)}</span>`).join('')}</div>`:'';
       if(lst)lst.outerHTML=html||'<span></span>';else if(html)t.insertAdjacentHTML('afterend',html);}
   });
+  f.addEventListener('click',e=>{const b=e.target.closest('[data-rowadd],[data-rowdel]');if(!b)return;e.preventDefault();
+    const ik=b.dataset.ik,fk=b.dataset.fk;const it=secs.flatMap(s=>s.items).find(i=>i.key===ik);const fd=it&&it.fields.find(x=>x.k===fk);if(!fd)return;
+    const arr=(val(ik,fk)||[]).slice();while(arr.length<1)arr.push({});
+    if(b.dataset.rowadd!=null){if(arr.length<(fd.max||10))arr.push({})}else arr.splice(+b.dataset.rowdel,1);
+    setF(ik,fk,arr);const box=b.closest('[data-rowsf]');if(box)box.outerHTML=fField(it,fd);
+    if(b.dataset.rowadd!=null){const n=f.querySelector(`[data-rowsf="${ik}.${fk}"] tbody tr:last-child input`);if(n)n.focus()}});
   const cd=$('#a-code');if(cd)cd.oninput=e=>{S.code=e.target.value;if(S.applyErr.__code){delete S.applyErr.__code;const n=$('#fi-__code');n.classList.remove('invalid');n.querySelector('.err')?.remove()}};
   const sb=$('#a-sample');if(sb)sb.onclick=()=>{fillSample(secs);renderApply();toast('예시 값을 채웠습니다. 파일은 직접 골라 주세요.')};
   f.addEventListener('submit',e=>{e.preventDefault();submitApply(secs)});
